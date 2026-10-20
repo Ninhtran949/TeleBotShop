@@ -1,0 +1,42 @@
+# Spec: identity-access
+
+Status: design baseline; chưa triển khai. Nguồn: `task.md` §§3,6,9,10. Depends on: không. Scope và coding/commands theo [index](README.md), [ARCHITECTURE](../../ARCHITECTURE.md), [CONVENTIONS](../../CONVENTIONS.md).
+
+## Contract
+
+- Actor là Telegram user ID nhận từ authenticated Update, không phải username, callback-supplied user ID hoặc một header do client tự đặt.
+- `/start` idempotently tạo/lấy profile; unique Telegram ID, optional username/display name, language, registration timestamps. Tiếng Việt là locale mặc định, không tạo password/login endpoint.
+- Profile lookup/permission checks là application contracts; bot/admin/API không tự quyết định business authorization từ menu hoặc role flag gửi từ client.
+- Owner đầu tiên bootstrap từ OWNER_ID khi chưa có owner. Restart không tự cấp lại quyền đã revoke hoặc grant thêm owner khi environment đổi; mismatch cần controlled ownership transfer, không tự sửa DB.
+- Permissions là tập enum/quyền cụ thể, default deny. Không triển khai generic policy engine. Mutation kiểm tra quyền hiện tại trong use case; actor context chỉ mang identity, không mặc định tin cached roles.
+
+## Vai trò mặc định
+
+| Hành động | OWNER | ADMIN | SUPPORT |
+| --- | --- | --- | --- |
+| Quản lý role/permission, operational settings | Có | Không | Không |
+| Catalog/giá và import/retire inventory | Có | Chỉ quyền được Owner cấp | Không |
+| Tra cứu order và metadata phục vụ công việc | Có | Theo quyền | Theo ticket/phạm vi được cấp |
+| Refund | Có, theo state/policy | Chỉ explicit refund permission | Không |
+| Support tickets | Có | Theo quyền | Ticket được phân công/phạm vi được cấp |
+| Bulk xem/export inventory plaintext | Không có tính năng mặc định | Không | Không |
+
+Khách hàng chỉ xem entitlement/order/ticket của mình. Staff role không tự động cho phép mở plaintext inventory hoặc bỏ qua order ownership; privileged access phải có use case/quyền riêng và audit, không tận dụng endpoint khách để impersonate.
+
+## Dữ liệu và API nội bộ tối thiểu
+
+`users`, `roles`, `permissions` và quan hệ user-role/role-permission. Telegram ID là BIGINT, duy nhất; username thay đổi không tạo account mới. Contracts tối thiểu: `get_or_create_customer`, `authorize(actor_id, permission, resource_scope)`, `grant_or_revoke_permission` có audit. Tên/signature cuối cùng được chốt cùng slice, không thêm API tổng quát trước nhu cầu.
+
+Ứng dụng chỉ nhận customer flows nhạy cảm trong private chat; group callback không được dùng làm delivery destination. `/admin` có thể từ chối sớm ở router để UX tốt, nhưng service vẫn phải từ chối direct unauthorized call.
+
+## Acceptance criteria
+
+- **IA-01:** Hai `/start` đồng thời cho cùng ID chỉ tạo một user; đổi username vẫn là cùng user, không tăng quyền.
+- **IA-02:** User thường gọi `/admin`, sửa callback hoặc gọi trực tiếp protected use case đều bị từ chối và không mutate DB/expose dữ liệu.
+- **IA-03:** Grant/revoke có hiệu lực ở lần gọi tiếp theo; ADMIN không grant/refund khi chưa có đúng permission; SUPPORT không vượt ticket scope.
+- **IA-04:** Owner bootstrap lặp lại không tạo thêm owner; thay OWNER_ID trái với persisted owner fail có thông báo vận hành an toàn.
+- **IA-05:** Private/customer ownership và staff scope có tests riêng; không có token/password/profile payload nhạy cảm trong logs/errors.
+
+## Verification khi triển khai
+
+Unit tests cho authorization matrix và malicious actor inputs; PostgreSQL integration cho unique identity/permission mutation + audit; adapter contract tests cho `/start`, `/admin`, private-chat guards. Chạy gates thật trong PROJECT sau bootstrap, không ghi pass từ tài liệu này.

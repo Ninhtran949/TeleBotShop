@@ -1,0 +1,4 @@
+# Preserve vendored upstream bytes across Git checkouts.
+.agents/skills/** -text
+.agents/references/** -text
+.agents/LICENSE -text
