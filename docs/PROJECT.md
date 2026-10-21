@@ -8,11 +8,12 @@ Mục tiêu từ [`task.md`](../task.md): shop Telegram bán tài nguyên số �
 | --- | --- |
 | Harness, sáu upstream skills, kiểm tra integrity | Đã có; nguồn và checksum giữ nguyên. |
 | Rule, architecture, convention, capability specs, ADR, implementation plan | Đã thiết kế thành baseline kỹ thuật theo yêu cầu Owner giao vai trò SE/SA. |
-| Application, dependency manifest/lock, database, migrations, CI | Chưa triển khai. Cây `src/` trong tài liệu là cấu trúc đích. |
+| T01: toolchain, package, manifest/lock, quality gates | Đã triển khai và kiểm chứng local: CPython 3.12.15, uv/uv_build 0.13.4, Pytest 9.1.1, Ruff 0.17.1; package tối thiểu, AST import checks, wheel/import smoke. |
+| Runtime/business flows, database, migrations, Compose, CI | Chưa triển khai. Chỉ có `src/telebotshop/__init__.py`; các lớp còn lại trong cây kiến trúc là cấu trúc đích. |
 | BotFather, test bot, webhook, PostgreSQL, credentials, backup/restore | Chưa cấu hình hoặc kiểm chứng. |
-| Git | Workspace chưa là Git repository; không tự `git init`, commit hoặc push. |
+| Git | Workspace hiện là Git repository, branch `dev`; sạch khi bắt đầu T01. Chưa commit hoặc push thay đổi T01. |
 
-Lượt thiết kế chỉ tạo/sửa tài liệu. Trạng thái thực thi của từng slice nằm trong [implementation plan](plans/shop/implementation-plan.md); tất cả task ứng dụng bắt đầu ở `pending`. Việc tiếp theo khi được giao triển khai là **T01**; không tự chạy toàn roadmap khi chỉ được giao một task.
+Trạng thái và bằng chứng của từng slice nằm trong [implementation plan](plans/shop/implementation-plan.md). T01 hoàn tất; **T02** là task tiếp theo, còn pending và cần được giao riêng. Không tự chạy toàn roadmap khi chỉ được giao một task.
 
 ## Đọc theo nhiệm vụ
 
@@ -24,24 +25,36 @@ Lượt thiết kế chỉ tạo/sửa tài liệu. Trạng thái thực thi c�
 | Thay đổi nền tảng/ranh giới | ADR liên quan trong [index](adr/README.md), rồi cập nhật hoặc supersede quyết định một cách tường minh. |
 | Docs/harness | Đúng tài liệu đang sửa và check dưới đây; không cần tải các skill code/security nếu không liên quan. |
 
-## Stack đã chọn cho triển khai, chưa cài
+## Stack đã chọn và mức triển khai
 
-Python 3.12, aiogram 3.x, FastAPI, PostgreSQL 18, SQLAlchemy 2.0 Async + asyncpg, Alembic, Pydantic Settings, Pytest, Ruff, Docker Compose. `uv` quản lý môi trường/lock; `cryptography` phục vụ mã hóa inventory. Lý do và giới hạn nằm trong ADR-0001 đến ADR-0004. Đây là quyết định thiết kế mới, không phải mô tả package đã tồn tại hoặc đã test tương thích.
+Python 3.12, aiogram 3.x, FastAPI, PostgreSQL 18, SQLAlchemy 2.0 Async + asyncpg, Alembic, Pydantic Settings, Pytest, Ruff, Docker Compose. `uv` quản lý môi trường/lock; `cryptography` phục vụ mã hóa inventory. Lý do và giới hạn nằm trong ADR-0001 đến ADR-0004. T01 mới cài toolchain và dev dependencies; runtime dependencies chưa được thêm trước slice cần dùng, chưa có bằng chứng tương thích toàn stack.
 
-Chốt patch versions, Python/uv/container versions và lockfile trong T01/T02 sau khi kiểm tra hỗ trợ thực tế. Redis chỉ thêm trước khi cần chia sẻ rate limit/FSM giữa nhiều ingress; chưa có React, Mini App, Celery, microservice hoặc plugin bổ sung.
+Python/uv/dev/build versions và lockfile đã pin trong T01; xem [README](../README.md) để bootstrap cục bộ. Container versions và runtime dependencies chốt từ T02 sau khi kiểm tra hỗ trợ thực tế. Redis chỉ thêm trước khi cần chia sẻ rate limit/FSM giữa nhiều ingress; chưa có React, Mini App, Celery, microservice hoặc plugin bổ sung.
 
-Harness dùng Python standard library 3.11+; Python 3.11.9 của phiên setup chỉ xác minh harness, không đáp ứng baseline runtime ứng dụng 3.12.
+Harness dùng Python standard library 3.11+ và đã kiểm tra độc lập bằng Python hệ thống 3.11.9. App gates dùng CPython 3.12.15 trong `.venv`; không thay Python hệ thống.
 
 ## Các lệnh hiện chạy được
 
-Run from the workspace root:
+Chạy từ workspace root. Bootstrap uv/Python và cấu hình cache theo [README](../README.md), rồi chạy các gate T01:
+
+```text
+uv lock --check
+uv sync --locked --no-build
+uv run --no-sync ruff check .
+uv run --no-sync ruff format --check .
+uv run --no-sync pytest tests/architecture
+uv run --no-sync python scripts/check_architecture.py
+uv build --no-sources
+```
+
+Wheel/import smoke trong môi trường riêng: [README](../README.md#kiểm-tra). Harness tiếp tục chạy riêng, không cần uv/app dependencies:
 
 ```text
 python scripts/verify_harness.py
 python -B -m unittest discover -s tests -p test_harness.py -v
 ```
 
-Các lệnh này chỉ kiểm tra harness. Gate dự kiến cho app được ghi riêng trong CONVENTIONS và chỉ dùng sau T01/T02; hiện chưa có app build/lint/type-check/migration/test suite để tuyên bố pass.
+Các architecture self-cases kiểm tra checker và cây source hiện có, chưa chứng minh nghiệp vụ chưa triển khai. Chưa có unit/contract/integration suite, type checker, DB/migration hoặc CI gate; chỉ bổ sung khi task tương ứng cần dùng theo CONVENTIONS. Local build/import không phải runtime hoặc Telegram validation.
 
 ## Điều kiện cần Owner cung cấp trước khi mở bán
 

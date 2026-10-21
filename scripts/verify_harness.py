@@ -62,18 +62,14 @@ def verify(root: Path, archive: Path | None = None) -> list[str]:
 
     expected_skills = {f".agents/skills/{name}/SKILL.md" for name in SKILLS}
     discovered = {
-        path.relative_to(root).as_posix()
-        for path in (agents / "skills").rglob("SKILL.md")
+        path.relative_to(root).as_posix() for path in (agents / "skills").rglob("SKILL.md")
     }
     if discovered != expected_skills:
         errors.append(
             f"Skill set mismatch: missing={sorted(expected_skills - discovered)}, "
             f"extra={sorted(discovered - expected_skills)}"
         )
-    actual = {
-        path.relative_to(root).as_posix()
-        for path in agents.rglob("*") if path.is_file()
-    }
+    actual = {path.relative_to(root).as_posix() for path in agents.rglob("*") if path.is_file()}
     actual.discard(".agents/upstream.json")
     if actual != set(files):
         errors.append(
@@ -84,9 +80,7 @@ def verify(root: Path, archive: Path | None = None) -> list[str]:
     if not required <= set(files) or not any(
         path.startswith(".agents/references/") for path in files
     ):
-        errors.append(
-            "Manifest is missing required skills, shared references, or original license"
-        )
+        errors.append("Manifest is missing required skills, shared references, or original license")
 
     for relative, digest in files.items():
         path = root / relative
@@ -110,23 +104,22 @@ def verify(root: Path, archive: Path | None = None) -> list[str]:
             header = re.match(r"\A---\r?\n(.*?)\r?\n---(?:\r?\n|$)", text, re.DOTALL)
             if (
                 not header
-                or not re.search(
-                    rf"^name: {re.escape(path.parent.name)}$", header[1], re.MULTILINE
-                )
+                or not re.search(rf"^name: {re.escape(path.parent.name)}$", header[1], re.MULTILINE)
                 or not re.search(r"^description: \S.+$", header[1], re.MULTILINE)
             ):
                 errors.append(f"Invalid skill name/description front matter: {relative}")
-        references = re.findall(
-            r"(?<![\w/])(?:\.\./)*references/[A-Za-z0-9_./-]+\.md", text
-        )
+        references = re.findall(r"(?<![\w/])(?:\.\./)*references/[A-Za-z0-9_./-]+\.md", text)
         for reference in set(references):
             target = (path.parent / reference).resolve()
             if not target.is_relative_to(agents) or not target.is_file():
                 errors.append(f"Missing reference: {relative} -> {reference}")
 
     for relative in (
-        "AGENTS.md", ".gitattributes", ".gitignore",
-        "docs/PROJECT.md", "docs/ARCHITECTURE.md",
+        "AGENTS.md",
+        ".gitattributes",
+        ".gitignore",
+        "docs/PROJECT.md",
+        "docs/ARCHITECTURE.md",
     ):
         if not (root / relative).is_file():
             errors.append(f"Missing harness file: {relative}")

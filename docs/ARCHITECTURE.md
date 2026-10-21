@@ -2,7 +2,7 @@
 
 ## Trạng thái và lựa chọn
 
-Đây là baseline thiết kế được SE/SA chọn theo ủy quyền của Owner, chưa có application source hay kiểm chứng runtime. Yêu cầu nghiệp vụ gốc ở [`task.md`](../task.md); lý do chọn kiến trúc ở [ADR-0001](adr/0001-modular-monolith.md). Thiết kế chỉ dựng package/file khi một slice cần dùng, không tạo toàn bộ cây trống.
+Đây là baseline thiết kế được SE/SA chọn theo ủy quyền của Owner. T01 mới triển khai package tối thiểu `src/telebotshop/__init__.py`, toolchain và AST import checks; chưa có runtime/business implementation. Yêu cầu nghiệp vụ gốc ở [`task.md`](../task.md); lý do chọn kiến trúc ở [ADR-0001](adr/0001-modular-monolith.md). Thiết kế chỉ dựng package/file khi một slice cần dùng, không tạo toàn bộ cây trống.
 
 Chọn **modular monolith**, một codebase/image, PostgreSQL là nguồn dữ liệu bền vững. Production dự kiến có hai process từ cùng image: HTTP ingress và fulfillment worker. Local polling chỉ là adapter development thay thế webhook, không chạy cùng webhook cho cùng bot.
 
@@ -107,4 +107,4 @@ Cam kết là **một entitlement/allocation cho mỗi order item**. Gửi messa
 
 ## Ranh giới harness
 
-`AGENTS.md` là entrypoint rule; docs là kiến thức được tải theo task. `.agents/` là upstream guidance được pin, không phải application package hay nơi đặt convention riêng. Công cụ harness hiện có không chứng minh app tuân import matrix; T01/T02 phải thêm architecture checks và app quality gates trước các feature.
+`AGENTS.md` là entrypoint rule; docs là kiến thức được tải theo task. `.agents/` là upstream guidance được pin, không phải application package hay nơi đặt convention riêng. Harness kiểm tra integrity/layout độc lập với app. T01 thêm `scripts/check_architecture.py` và `tests/architecture/test_import_boundaries.py` cho import matrix: domain/application không kéo thư viện ngoài vào; transports chỉ dùng SDK của transport đó, không kéo infrastructure hoặc transport khác; infrastructure chỉ phụ thuộc application ports và domain, không gọi ngược use cases. `bootstrap`/`__main__` được wiring; package root không re-export adapters. Static checks không chứng minh transaction, ownership hoặc runtime behavior của feature chưa viết.

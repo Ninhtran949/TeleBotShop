@@ -45,23 +45,25 @@ Integration fixtures chỉ được reset database test được allowlist rõ, 
 
 Review theo correctness, simplicity, architecture, security, performance. Feature tiền/kho/quyền phải xem call chain và rollback/uncertain paths, không chỉ diff/happy-path test. Nêu Critical/High còn mở và chặn nghiệm thu affected scope; không đổi business rules để làm test pass.
 
-## Toolchain và gate dự kiến
+## Toolchain và quality gates
 
-**Hiện chưa có pyproject, uv.lock, app tests hoặc CI. Các lệnh dưới là contract để T01/T02 thiết lập, chưa phải kết quả đã chạy.** Chi tiết lý do ở [ADR-0004](adr/0004-toolchain-and-quality-gates.md).
+**T01 đã thiết lập manifest/lock, package tối thiểu và các gate local dưới đây. Runtime/DB/CI vẫn chưa có.** Bằng chứng nằm tại T01 trong [implementation plan](plans/shop/implementation-plan.md); lý do chọn ở [ADR-0004](adr/0004-toolchain-and-quality-gates.md).
 
-`pyproject.toml` cấu hình Python/dependency groups, Pytest và Ruff; `uv.lock` là lockfile duy nhất. Bootstrap pin uv/Python/container versions. Ruff: target `py312`, line length 100, rules `E`, `F`, `I`, `B`, `UP`; dùng formatter của Ruff. Thêm rule sau khi có nhu cầu; không disable rule hàng loạt hoặc auto-fix ngoài scope.
+`pyproject.toml` cấu hình Python/dependency groups, Pytest và Ruff; `uv.lock` là lockfile duy nhất. `.python-version` pin CPython 3.12.15; `tool.uv.required-version` pin uv 0.13.4, build backend pin cùng phiên bản; dev group pin Pytest 9.1.1 và Ruff 0.17.1. Container/runtime versions thuộc T02. Ruff: target `py312`, line length 100, rules `E`, `F`, `I`, `B`, `UP`; dùng formatter của Ruff. `.agents/` được loại khỏi lint/format để giữ nguyên bytes upstream; Python do repo sở hữu, gồm harness, vẫn được kiểm tra. Thêm rule sau khi có nhu cầu; không disable rule hàng loạt hoặc auto-fix ngoài scope.
 
 ```text
 uv lock --check
 uv sync --locked --no-build
 uv run --no-sync ruff check .
 uv run --no-sync ruff format --check .
-uv run --no-sync pytest tests/unit tests/contract tests/architecture
-uv run --no-sync pytest tests/integration
+uv run --no-sync pytest tests/architecture
+uv run --no-sync python scripts/check_architecture.py
 uv build --no-sources
 ```
 
-Chỉ chạy test directories đã tồn tại; T01/T02 phải tạo/document gate tương ứng trước khi tuyên bố chúng được áp dụng. `tests/test_harness.py` vẫn được kiểm tra riêng bằng lệnh standard-library trong PROJECT. Với docs-only change không chạy DB/app suite không liên quan.
+`tests/architecture` gồm positive/negative self-cases của checker và kiểm tra source thực. Checker dùng AST, resolve relative imports kể cả package `__init__.py`, không import code app; không thay review runtime/dynamic loading. `pythonpath` của Pytest chỉ thêm repository root cho tooling, không thêm `src`, nên không che lỗi package installation. Wheel/import smoke dùng môi trường tách biệt và Python `-I` theo README.
+
+Chỉ chạy test directories đã tồn tại. Khi thêm unit/contract/integration suites ở các task sau, cập nhật Pytest discovery và commands: `uv run --no-sync pytest tests/unit tests/contract tests/architecture`, `uv run --no-sync pytest tests/integration`. PostgreSQL integration giữ các yêu cầu cô lập ở trên. `tests/test_harness.py` vẫn được kiểm tra riêng bằng lệnh standard-library trong PROJECT. Với docs-only change không chạy DB/app suite không liên quan.
 
 CI dùng cùng commands, database test cô lập và lockfile không được tự sửa. `--locked` kiểm tra stale metadata/lock; không thay bằng `--frozen` để che drift. `--no-build` hạn chế build third-party sdist, không miễn việc review build backend của chính project. Không chạy curl-to-shell hoặc install script chưa review. Dependency audit trước release dùng tool tương thích lockfile đã chọn; ghi tool/version, findings/reachability và mọi deferral. Không tự forced-upgrade dependencies.
 

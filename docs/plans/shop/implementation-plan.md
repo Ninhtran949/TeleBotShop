@@ -1,6 +1,6 @@
 # Implementation plan và task ledger
 
-Status: **design baseline hoàn tất; application execution chưa bắt đầu**. Tất cả checkbox ứng dụng dưới đây đang pending, không phải bằng chứng đã triển khai. Agent chỉ làm task/phase được giao, không tự coi roadmap là authorization. Owner đã giao thiết kế các tài liệu này, chưa giao chạy các phase ứng dụng trong lượt thiết kế.
+Status: **design baseline và T01 hoàn tất; T02–T18 pending**. T01 chỉ chứng minh toolchain/package và quality checks local; runtime/business flows chưa triển khai. Agent chỉ làm task/phase được giao, không tự coi roadmap là authorization. Owner giao thực hiện T01 ngày 2026-10-21; không mở rộng authorization sang T02.
 
 ## Cách nhận và bàn giao task
 
@@ -24,7 +24,33 @@ Check scope: **H** = hai harness commands trong PROJECT. **C** = applicable lock
 
 ## Phase 1
 
-- [ ] **T01 — Toolchain và package baseline.** Depends: design. Scope: `pyproject.toml`, `uv.lock`, Python/uv version pin, minimal `src/telebotshop` package, test/Ruff configuration và quality-check entrypoints. Acceptance: clean locked environment; wheel/import smoke; meaningful architecture-check self-cases; harness chạy riêng được. Verify: H + applicable C, record real package/runtime versions. Không tạo placeholder business flows hoặc dependencies cho feature chưa làm.
+- [x] **T01 — Toolchain và package baseline.** Depends: design. Scope: `pyproject.toml`, `uv.lock`, Python/uv version pin, minimal `src/telebotshop` package, test/Ruff configuration và quality-check entrypoints. Acceptance: clean locked environment; wheel/import smoke; meaningful architecture-check self-cases; harness chạy riêng được. Verify: H + applicable C, record real package/runtime versions. Không tạo placeholder business flows hoặc dependencies cho feature chưa làm.
+
+  Hoàn tất local ngày 2026-10-21 theo yêu cầu Owner. Ba phần đã kiểm chứng: (a) toolchain/locked install/build/import; (b) AST checker + positive/negative self-cases; (c) gates/review/tài liệu. Files: `.python-version`, `pyproject.toml`, `uv.lock`, `src/telebotshop/__init__.py`, `scripts/check_architecture.py`, `tests/architecture/test_import_boundaries.py`, `.gitignore`, `README.md`, PROJECT/CONVENTIONS/ARCHITECTURE và plan này. `scripts/verify_harness.py` chỉ được Ruff format để áp dụng gate toàn repo; AST trước/sau giống nhau. `task.md`, AGENTS, ADRs, `.agents/`, attributes và harness tests không đổi.
+
+  Environment: Windows x86_64; app CPython **3.12.15** (build 2026-10-14), **uv 0.13.4** (7456b60bc, 2026-10-20), bundled **uv_build 0.13.4**, **Pytest 9.1.1**, **Ruff 0.17.1**. `uv.lock` có 8 packages kể cả project; không có runtime dependencies. Tool cài từ official PyPI wheels, managed Python/tool/cache nằm trong workspace được ignore; không sửa Python hệ thống 3.11.9. Git đã có, branch `dev`, sạch khi bắt đầu; chưa commit/push.
+
+  Commands dưới dùng uv đã pin (trong phiên thực thi là `.tools/uv/Scripts/uv.exe`); bootstrap/biến cache ở [README](../../../README.md). Tất cả dòng PASS có exit **0**:
+
+  | Command / acceptance | Kết quả thực tế |
+  | --- | --- |
+  | `uv lock --check` | PASS; manifest và lock nhất quán. |
+  | `uv sync --locked --no-build` | PASS từ `.venv` chưa tồn tại; cài 8 packages, third-party wheels, build project bằng bundled backend. Lần kiểm tra cuối: checked 8 packages. |
+  | `uv run --no-sync ruff check .` | PASS; rules E/F/I/B/UP, không tắt rule để pass. |
+  | `uv run --no-sync ruff format --check .` | PASS. Chỉ format verifier cũ và test mới; không sửa upstream. |
+  | `uv run --no-sync pytest tests/architecture` | **47 passed**; absolute/relative/package imports, aliases, wrong-layer/external SDK imports, nested/multiple imports, missing/invalid source và CLI exit 0/1 từ fixture cô lập. |
+  | `uv run --no-sync python scripts/check_architecture.py` | PASS trên source hiện có; không import/execute app modules. |
+  | `uv build --no-sources` | PASS; `dist/telebotshop-0.1.0.tar.gz` và `dist/telebotshop-0.1.0-py3-none-any.whl`, wheel được build từ sdist. |
+  | `uv venv --python .venv/Scripts/python.exe .cache/wheel-smoke` | PASS; môi trường riêng, không có dev dependencies. |
+  | `uv pip install --python .cache/wheel-smoke/Scripts/python.exe --no-index --no-deps dist/telebotshop-0.1.0-py3-none-any.whl` | PASS. Sau khi README hoàn tất, build lại và thêm `--reinstall` để kiểm tra đúng artifact cuối. |
+  | Wheel/import smoke bằng `.cache/wheel-smoke/Scripts/python.exe -I` với assert trong README | PASS; package/version 0.1.0 được đọc từ isolated `site-packages`, không từ `src` hoặc PYTHONPATH. |
+  | `python scripts/verify_harness.py` | PASS; six skills/integrity/reference paths/layout, Python hệ thống 3.11.9. |
+  | `python -B -m unittest discover -s tests -p test_harness.py -v` | **6 tests, OK**, chạy độc lập app environment. |
+  | `git diff --check` | PASS. |
+
+  Test-first evidence: `uv run --no-sync pytest tests/architecture -q` trên checker stub trước implementation: **29 failed, 15 passed**, exit 1 đúng kỳ vọng. Sau implementation và thêm CLI/encoding cases: 47 pass. Mutation review đảo điều kiện cho phép external library: **11 failed, 36 passed**, exit 1; đã restore nguyên bytes checker và suite 47 pass lại. Self-review correctness/simplicity/architecture/security/performance không còn Critical/High/Required trong phạm vi T01; không có test/lint rule bị disable. Import checker là static guard, không phải chứng minh toàn bộ Clean Architecture hoặc business behavior.
+
+  Artifact review: sdist/wheel không chứa `.tools`, `.cache`, `.venv`, `.env` hoặc `.agents`; wheel chỉ có package tối thiểu và metadata, không có `Requires-Dist`. uv cảnh báo cache trong source root khi build; kiểm tra archive xác nhận cache không được đóng gói. Local-link/code-fence audit cho năm Markdown files thay đổi: PASS. Không có DB/Telegram/CI/container/Linux validation, automated dependency vulnerability audit hoặc type-check; các gate đó chưa thuộc T01. Ranh giới tiếp theo là **T02, pending**, không tạo business layers trống hoặc runtime wiring sớm.
 
 - [ ] **T02 — Runtime wiring, settings và database readiness.** Depends: T01. Scope: bootstrap/entrypoints, FastAPI health, PostgreSQL/async session UoW, Alembic baseline, dev/test Compose settings. Acceptance: startup fail với invalid config; ready phản ánh DB/schema; isolated test DB/migration clean/upgrade; clients/session đóng khi shutdown. Verify: C + D; integration tests chứng minh UoW rollback/no hidden commit và import matrix. Cập nhật PROJECT bằng exact commands đã tồn tại.
 

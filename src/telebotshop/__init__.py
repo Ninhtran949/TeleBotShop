@@ -1,0 +1,1 @@
+"""TeleBotShop application package."""
