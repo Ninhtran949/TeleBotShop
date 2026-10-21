@@ -9,11 +9,12 @@ Mục tiêu từ [`task.md`](../task.md): shop Telegram bán tài nguyên số �
 | Harness, sáu upstream skills, kiểm tra integrity | Đã có; nguồn và checksum giữ nguyên. |
 | Rule, architecture, convention, capability specs, ADR, implementation plan | Đã thiết kế thành baseline kỹ thuật theo yêu cầu Owner giao vai trò SE/SA. |
 | T01: toolchain, package, manifest/lock, quality gates | Đã triển khai và kiểm chứng local: CPython 3.12.15, uv/uv_build 0.13.4, Pytest 9.1.1, Ruff 0.17.1; package tối thiểu, AST import checks, wheel/import smoke. |
-| Runtime/business flows, database, migrations, Compose, CI | Chưa triển khai. Chỉ có `src/telebotshop/__init__.py`; các lớp còn lại trong cây kiến trúc là cấu trúc đích. |
-| BotFather, test bot, webhook, PostgreSQL, credentials, backup/restore | Chưa cấu hình hoặc kiểm chứng. |
-| Git | Workspace hiện là Git repository, branch `dev`; sạch khi bắt đầu T01. Chưa commit hoặc push thay đổi T01. |
+| T02: settings/runtime, HTTP health, PostgreSQL/UoW, Alembic, dev/test Compose | Đã triển khai và kiểm chứng local trên PostgreSQL 18.6; schema baseline chỉ có Alembic revision, chưa có business tables. |
+| Business flows, Telegram bot/webhook, CI, production image/deployment | Chưa triển khai; các phần tương ứng trong cây kiến trúc là cấu trúc đích. |
+| BotFather/test bot, live credentials, backup/restore | Chưa cấu hình hoặc kiểm chứng; local PostgreSQL dùng credentials giả tách biệt. |
+| Git | Repository branch `dev`; T01 baseline đã commit (`ea4882f`), workspace sạch khi bắt đầu T02. Chưa commit/push thay đổi T02. |
 
-Trạng thái và bằng chứng của từng slice nằm trong [implementation plan](plans/shop/implementation-plan.md). T01 hoàn tất; **T02** là task tiếp theo, còn pending và cần được giao riêng. Không tự chạy toàn roadmap khi chỉ được giao một task.
+Trạng thái và bằng chứng của từng slice nằm trong [implementation plan](plans/shop/implementation-plan.md). T01/T02 hoàn tất; **T03** là task tiếp theo, còn pending và cần được giao riêng. Không tự chạy toàn roadmap khi chỉ được giao một task.
 
 ## Đọc theo nhiệm vụ
 
@@ -27,34 +28,47 @@ Trạng thái và bằng chứng của từng slice nằm trong [implementation 
 
 ## Stack đã chọn và mức triển khai
 
-Python 3.12, aiogram 3.x, FastAPI, PostgreSQL 18, SQLAlchemy 2.0 Async + asyncpg, Alembic, Pydantic Settings, Pytest, Ruff, Docker Compose. `uv` quản lý môi trường/lock; `cryptography` phục vụ mã hóa inventory. Lý do và giới hạn nằm trong ADR-0001 đến ADR-0004. T01 mới cài toolchain và dev dependencies; runtime dependencies chưa được thêm trước slice cần dùng, chưa có bằng chứng tương thích toàn stack.
+Python 3.12, aiogram 3.x, FastAPI, PostgreSQL 18, SQLAlchemy 2.0 Async + asyncpg, Alembic, Pydantic Settings, Pytest, Ruff, Docker Compose. `uv` quản lý môi trường/lock; `cryptography` phục vụ mã hóa inventory. Lý do và giới hạn nằm trong ADR-0001 đến ADR-0004. T02 đã pin/cài FastAPI 0.156.4, Pydantic 2.14.1/Settings 2.16.1, SQLAlchemy 2.0.55 Async, asyncpg 0.32.0, Alembic 1.20.0 và Uvicorn 0.54.0; dev tests dùng httpx2 2.15.1/Pytest-asyncio 1.4.0. aiogram và cryptography chỉ thêm ở slice thật sự dùng.
 
-Python/uv/dev/build versions và lockfile đã pin trong T01; xem [README](../README.md) để bootstrap cục bộ. Container versions và runtime dependencies chốt từ T02 sau khi kiểm tra hỗ trợ thực tế. Redis chỉ thêm trước khi cần chia sẻ rate limit/FSM giữa nhiều ingress; chưa có React, Mini App, Celery, microservice hoặc plugin bổ sung.
+Python/uv/dev/build versions và lockfile đã pin trong T01; runtime/development packages cập nhật ở T02. Compose pin official PostgreSQL 18.6-bookworm bằng immutable digest; đã chạy với Docker Linux Engine 29.6.2/Compose 5.3.1. Xem [README](../README.md) để bootstrap/start và [DATABASE](DATABASE.md) cho DB/migrations/isolation. Redis chỉ thêm trước khi cần chia sẻ rate limit/FSM giữa nhiều ingress; chưa có React, Mini App, Celery, microservice hoặc plugin bổ sung.
 
 Harness dùng Python standard library 3.11+ và đã kiểm tra độc lập bằng Python hệ thống 3.11.9. App gates dùng CPython 3.12.15 trong `.venv`; không thay Python hệ thống.
 
 ## Các lệnh hiện chạy được
 
-Chạy từ workspace root. Bootstrap uv/Python và cấu hình cache theo [README](../README.md), rồi chạy các gate T01:
+Chạy từ workspace root. Bootstrap uv/Python và cấu hình cache theo [README](../README.md), rồi chạy C gates:
 
 ```text
 uv lock --check
 uv sync --locked --no-build
 uv run --no-sync ruff check .
 uv run --no-sync ruff format --check .
-uv run --no-sync pytest tests/architecture
+uv run --no-sync pytest tests/unit tests/contract tests/architecture
 uv run --no-sync python scripts/check_architecture.py
 uv build --no-sources
 ```
 
-Wheel/import smoke trong môi trường riêng: [README](../README.md#kiểm-tra). Harness tiếp tục chạy riêng, không cần uv/app dependencies:
+Runtime và migration commands đã tồn tại (export environment trước, theo README):
+
+```text
+uv run --no-sync alembic upgrade head
+uv run --no-sync telebotshop
+```
+
+PostgreSQL gate D, sau khi start disposable test service và export `APP_ENV=test`/`TEST_DATABASE_URL` theo README:
+
+```text
+uv run --no-sync pytest tests/integration
+```
+
+Wheel/runtime import smoke trong môi trường riêng và locked dependency audit: [README](../README.md#kiểm-tra). Harness tiếp tục chạy riêng, không cần uv/app dependencies:
 
 ```text
 python scripts/verify_harness.py
 python -B -m unittest discover -s tests -p test_harness.py -v
 ```
 
-Các architecture self-cases kiểm tra checker và cây source hiện có, chưa chứng minh nghiệp vụ chưa triển khai. Chưa có unit/contract/integration suite, type checker, DB/migration hoặc CI gate; chỉ bổ sung khi task tương ứng cần dùng theo CONVENTIONS. Local build/import không phải runtime hoặc Telegram validation.
+Unit/contract/architecture suite kiểm tra settings, health transport và source/import behavior. PostgreSQL integration kiểm tra migration, UoW/failure/concurrency, readiness và resource cleanup thật. Chưa chứng minh business capabilities chưa triển khai; chưa có type checker, hosted CI, Telegram test/live hoặc production validation.
 
 ## Điều kiện cần Owner cung cấp trước khi mở bán
 
@@ -72,6 +86,6 @@ To reproduce the vendor subset, download the commit-pinned archive from the mani
 python scripts/verify_harness.py --archive <path-to-pinned.tar.gz>
 ```
 
-Codex [discovers repository skills natively](https://learn.chatgpt.com/docs/build-skills) from `.agents/skills/`; no router, plugin configuration, or global configuration change is needed. Launch from this workspace root while Git is absent. If skills do not appear after a change, restart Codex. User or plugin skills with the same names can coexist; inspect their paths before choosing one.
+Codex [discovers repository skills natively](https://learn.chatgpt.com/docs/build-skills) from `.agents/skills/`; no router, plugin configuration, or global configuration change is needed. Launch from this workspace root. If skills do not appear after a change, restart Codex. User or plugin skills with the same names can coexist; inspect their paths before choosing one.
 
 Nguồn chuẩn hiện tại là [ARCHITECTURE](ARCHITECTURE.md), [CONVENTIONS](CONVENTIONS.md), [ADR index](adr/README.md), và [shop specs/plan](plans/shop/README.md). [Báo cáo setup harness](plans/engineering-harness.md) là bằng chứng lịch sử, không phải tài liệu khởi động bắt buộc.

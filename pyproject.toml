@@ -4,7 +4,18 @@ version = "0.1.0"
 description = "Telegram digital goods shop"
 readme = "README.md"
 requires-python = ">=3.12,<3.13"
-dependencies = []
+dependencies = [
+    "alembic==1.20.0",
+    "asyncpg==0.32.0",
+    "fastapi==0.156.4",
+    "pydantic==2.14.1",
+    "pydantic-settings==2.16.1",
+    "sqlalchemy[asyncio]==2.0.55",
+    "uvicorn==0.54.0",
+]
+
+[project.scripts]
+telebotshop = "telebotshop.bootstrap:main"
 
 [build-system]
 requires = ["uv_build==0.13.4"]
@@ -12,7 +23,9 @@ build-backend = "uv_build"
 
 [dependency-groups]
 dev = [
+    "httpx2==2.15.1",
     "pytest==9.1.1",
+    "pytest-asyncio==1.4.0",
     "ruff==0.17.1",
 ]
 
@@ -20,10 +33,12 @@ dev = [
 required-version = "==0.13.4"
 
 [tool.pytest.ini_options]
-testpaths = ["tests/architecture"]
+testpaths = ["tests/unit", "tests/contract", "tests/architecture"]
 pythonpath = ["."]
 addopts = ["--import-mode=importlib", "--strict-config", "--strict-markers"]
 filterwarnings = ["error"]
+asyncio_mode = "strict"
+asyncio_default_fixture_loop_scope = "function"
 
 [tool.ruff]
 target-version = "py312"

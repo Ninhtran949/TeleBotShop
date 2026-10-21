@@ -2,7 +2,7 @@
 
 ## Trạng thái và lựa chọn
 
-Đây là baseline thiết kế được SE/SA chọn theo ủy quyền của Owner. T01 mới triển khai package tối thiểu `src/telebotshop/__init__.py`, toolchain và AST import checks; chưa có runtime/business implementation. Yêu cầu nghiệp vụ gốc ở [`task.md`](../task.md); lý do chọn kiến trúc ở [ADR-0001](adr/0001-modular-monolith.md). Thiết kế chỉ dựng package/file khi một slice cần dùng, không tạo toàn bộ cây trống.
+Đây là baseline thiết kế được SE/SA chọn theo ủy quyền của Owner. T01/T02 đã triển khai toolchain/package, validated settings, HTTP health, PostgreSQL readiness/UoW và Alembic baseline. Chưa có business flows, Telegram adapter/worker hoặc business tables. Yêu cầu nghiệp vụ gốc ở [`task.md`](../task.md); lý do chọn kiến trúc ở [ADR-0001](adr/0001-modular-monolith.md). Thiết kế chỉ dựng package/file khi một slice cần dùng, không tạo toàn bộ cây trống.
 
 Chọn **modular monolith**, một codebase/image, PostgreSQL là nguồn dữ liệu bền vững. Production dự kiến có hai process từ cùng image: HTTP ingress và fulfillment worker. Local polling chỉ là adapter development thay thế webhook, không chạy cùng webhook cho cùng bot.
 
@@ -59,6 +59,12 @@ tests/
 ```
 
 Hàm/DTO đặt cạnh use case sở hữu; chỉ tách module chung khi có nhu cầu thật. Không tạo sẵn file cho mọi item trong cây. Mapping capability → trách nhiệm nằm trong [spec index](plans/shop/README.md), không sinh microservice cho từng capability.
+
+T02 hiện chỉ có HTTP entrypoint `python -m telebotshop`/`telebotshop`, không dựng worker/dev
+polling placeholder. `bootstrap.py` load settings khi được gọi, tạo engine và inject readiness
+callable/lifespan vào API factory; API không import concrete DB adapter. Lifespan đóng engine,
+UoW dùng context manager của AsyncSession để rollback/close; schema contract và evidence ở
+[DATABASE](DATABASE.md). UoW factory được inject vào use case khi slice đó thật sự có caller.
 
 ## Ma trận import bắt buộc
 
