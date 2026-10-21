@@ -27,12 +27,14 @@ from telebotshop.bot.routers.catalog import create_catalog_router
 from telebotshop.bot.routers.identity import create_customer_router
 from telebotshop.domain.errors import OwnerConfigurationError
 from telebotshop.domain.models.inventory import InventoryCryptoError
+from telebotshop.domain.models.pre_checkout import PreCheckout
 from telebotshop.infrastructure.config import BotSettings, InventorySettings, Settings
 from telebotshop.infrastructure.crypto import AesGcmInventoryCipher
 from telebotshop.infrastructure.database.readiness import database_ready
 from telebotshop.infrastructure.database.uow import unit_of_work
 from telebotshop.infrastructure.telegram.guard import IngressGuard
 from telebotshop.infrastructure.telegram.logging import configure_telegram_logging
+from telebotshop.infrastructure.telegram.pre_checkout import create_pre_checkout_router
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:
@@ -60,6 +62,11 @@ class PollingStartupError(Exception):
 
 class ExpiryStartupError(Exception):
     pass
+
+
+async def _pre_checkout_unavailable(_request: PreCheckout) -> bool:
+    # Durable receipt intake is required before enabling approvals in T08.
+    return False
 
 
 async def run_expiry(settings: Settings) -> tuple[int, int]:
@@ -93,6 +100,7 @@ def create_dispatcher(
     dispatcher.include_router(create_admin_router(access))
     dispatcher.include_router(create_catalog_admin_router(catalog, access))
     dispatcher.include_router(create_inventory_admin_router(inventory, access))
+    dispatcher.include_router(create_pre_checkout_router(_pre_checkout_unavailable))
     fallback = Router(name="unknown_callback")
 
     @fallback.callback_query()
@@ -127,14 +135,24 @@ async def run_polling(settings: BotSettings, inventory_settings: InventorySettin
         async with Bot(settings.bot_token.get_secret_value()) as bot:
             if (await bot.get_webhook_info()).url:
                 raise PollingStartupError("Webhook is configured; polling refused")
-            await create_dispatcher(
-                identity, access, CatalogService(factory), inventory
-            ).start_polling(
-                bot,
-                allowed_updates=["message", "callback_query"],
-                handle_as_tasks=False,
-                close_bot_session=False,
-            )
+            dispatcher = create_dispatcher(identity, access, CatalogService(factory), inventory)
+            try:
+                await dispatcher.start_polling(
+                    bot,
+                    allowed_updates=["message", "callback_query", "pre_checkout_query"],
+                    handle_as_tasks=True,
+                    tasks_concurrency_limit=32,
+                    close_bot_session=False,
+                )
+            finally:
+                # shortcut: pinned aiogram has no public task drain; replace when available.
+                pending = tuple(dispatcher._handle_update_tasks)
+                if pending:
+                    try:
+                        async with asyncio.timeout(10):
+                            await asyncio.gather(*pending, return_exceptions=True)
+                    except TimeoutError:
+                        pass
     finally:
         await engine.dispose()
 

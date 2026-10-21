@@ -2,10 +2,11 @@
 
 T02 dùng PostgreSQL **18.6**, SQLAlchemy **2.0.55** Async + asyncpg **0.32.0** và
 Alembic **1.20.0**. T03 thêm identity/access/settings và audit repositories bằng SQLAlchemy
-Core tables; không trả ORM/session ra application. Head hiện tại **`0006_orders`**;
+Core tables; không trả ORM/session ra application. Head hiện tại **`0007_pre_checkout`**;
 `0001_runtime` giữ nguyên, `0002_identity` thêm identity/Owner/audit, `0003_access` thêm
 explicit grants, settings và confirmation. T04 thêm `0004_catalog`; T05 thêm encrypted
 inventory/actions/key verifiers; T06 thêm orders/items/invoice intents và finite reservations.
+T07 thêm immutable query-bound pre-checkout approval và controlled reservation extension.
 
 | Tables | Contract |
 | --- | --- |
@@ -23,6 +24,7 @@ inventory/actions/key verifiers; T06 thêm orders/items/invoice intents và fini
 | `inventory_crypto_state` | Singleton chỉ lưu HMAC verifiers của dedup/AES keys theo version, không lưu raw keys. Khóa row khi kiểm tra/register; từ chối đổi dedup, đổi key cùng version hoặc bỏ registered version. |
 | `orders`, `order_items` | Buyer/action unique, immutable quantity-one XTR/public product/price snapshot và finite unit/product FKs; DB-time TTL, guarded unpaid close và retained history. |
 | `invoice_intents` | Một opaque payload/order, durable unique attempt, READY/SENDING/SENT/REJECTED/UNCERTAIN/CANCELLED; no automatic resend, không phải payment receipt. |
+| `pre_checkout_approvals` | Order PK/FK, unique opaque query ID, approved_at theo DB time; chặn UPDATE/DELETE/TRUNCATE. Một approval/order, giữ qua timeout/expiry. |
 
 ## Local development và test
 
@@ -159,7 +161,7 @@ FK và last-key checkout race; ALLOCATED/payment-vs-expiry thuộc T08.
 
 ## T06 orders và reservations
 
-Head `0006_orders` thêm `orders`, immutable quantity-one `order_items`, `invoice_intents`;
+Revision `0006_orders` thêm `orders`, immutable quantity-one `order_items`, `invoice_intents`;
 unit có nullable reservation item/expiry và RESERVED state. Unique buyer/action chống
 double-click; FK item→unit/product và unit→item/unit ràng buộc đúng kho. Giá/type/title/description
 snapshot, buyer/action/expiry và invoice payload không đổi. Mỗi unit chỉ có một current
@@ -174,7 +176,8 @@ Cancel/expiry khóa order trước, chỉ AWAITING_PAYMENT→EXPIRED, release b�
 và audit cùng commit. Trigger chặn sửa snapshot, resurrect order, release reservation còn
 AWAITING và retire RESERVED. Expiry khóa theo order ID với SKIP LOCKED, mỗi batch ≤100;
 không release đơn mới chỉ vì unit từng thuộc đơn cũ. T07/T08 phải mở rộng migration/state
-guards cho approval gia hạn/paid allocation; T06 chưa tạo PAID giả hoặc payment tables.
+guards cho approval gia hạn/paid allocation; T07 đã thêm approval extension, paid allocation
+còn T08. T06/T07 chưa tạo PAID giả hoặc payment tables.
 
 Invoice claim READY→SENDING/attempt commit trước API. Kết quả SENT/REJECTED/UNCERTAIN
 persist trong transaction khác; known reject close/release chỉ nếu order còn unpaid.
@@ -184,6 +187,29 @@ Cancel/expiry trong lúc network chạy không bị kết quả SENT phục hồ
 Tests seed historical rows hợp lệ và dùng DB time, không disable trigger hoặc đổi clock.
 T05→T06 giữ ciphertext/proofs/audit/pending imports; empty downgrade/re-upgrade được test.
 Downgrade khi có order history bị từ chối để không tự xóa đơn hoặc restock keys.
+
+## T07 pre-checkout approval
+
+`0007_pre_checkout` giữ nguyên orders/items/invoice/ciphertext; chỉ thêm approval table và
+thay guard để cho phép một lần extension hợp lệ. Application lock order theo unique invoice
+payload, rồi current product và exact unit; DB time đọc sau locks. Chỉ registered buyer,
+XTR/snapshot amount, active product, AWAITING_PAYMENT/unexpired và invoice
+SENDING/SENT/UNCERTAIN được approve. Không dựa vào tổng AVAILABLE khi order đã giữ key cuối.
+
+Order PK ngăn hai approvals; unique query ID ngăn dùng một query cho hai orders. Same query
+replay vẫn kiểm tra current owner/amount/state/reservation, không thêm audit/gia hạn. Query
+khác cho order approved bị reject. Insert approval + max(old expiry, approved_at+15m) trên
+order và exact RESERVED unit + redacted audit cùng commit. Trigger chặn tự tăng TTL ngoài
+approval, đổi binding hoặc xóa lịch sử. Expiry SKIP LOCKED bỏ qua approval in-flight, sau
+commit đọc TTL mới. Cancel unpaid vẫn guarded; replay sau cancel/expiry không approve lại.
+
+DB/validation budget 4s bao gồm pool/locks/commit; SET LOCAL lock 2s/statement 5s từ order
+port vẫn áp dụng bên trong total budget. Answer có 3s budget riêng, không network dưới lock.
+API timeout hoặc lost answer không xóa approval; different query không được tự mở lại.
+Invoice REJECTED tới sau approval là evidence mâu thuẫn: lưu UNCERTAIN, giữ reservation thay
+vì tự release. Approval chưa phải receipt/PAID; matching late receipt/allocation còn T08.
+T06 upgrade preservation, metadata drift và rollback hai TTL/approval/audit được test trên
+PostgreSQL thật. Downgrade 7→6 chỉ khi approval table rỗng; có approval history thì từ chối.
 
 ## Health và shutdown
 

@@ -4,10 +4,10 @@ Shop Telegram bán tài nguyên số có quyền phân phối, thanh toán Stars
 Trạng thái và task đang được thực hiện: [PROJECT](docs/PROJECT.md),
 [implementation plan](docs/plans/shop/implementation-plan.md).
 
-T01–T06 đã có toolchain/runtime, identity/permissions/audit, catalog PostgreSQL với năm loại
+T01–T07 đã có toolchain/runtime, identity/permissions/audit, catalog PostgreSQL với năm loại
 metadata công khai, admin product maintenance và kho key/license mã hóa, import atomic,
 retire/low-stock có phân quyền và order/reservation/expiry cho key/license. Durable invoice
-intent và Stars adapter đã có; customer Buy còn chờ pre-checkout/receipt T07/T08. Chưa có
+intent, Stars adapter và pre-checkout validation/approval đã có; customer Buy chờ T08. Chưa có
 payment intake, fulfillment hoặc production webhook; Telegram API trong tests là mock.
 
 ## Môi trường development
@@ -73,12 +73,24 @@ Operator có thể chạy một batch tối đa 100 đơn hết hạn và 100 in
 uv run --no-sync telebotshop expire-orders
 ```
 
-Lệnh cần DATABASE_URL/schema head `0006_orders`, không cần BOT_TOKEN/OWNER_ID hoặc
+Lệnh cần DATABASE_URL/schema head `0007_pre_checkout`, không cần BOT_TOKEN/OWNER_ID hoặc
 inventory keys; không gửi Telegram. TTL reservation 15 phút theo DB time. Claim SENDING
 quá 30 giây chuyển UNCERTAIN, giữ attempt và không tự gửi lại. Chạy lặp theo lịch vận hành
 khi có checkout; T06 chưa có scheduler/worker hoặc thao tác tự reconcile/resend invoice.
 Invoice sent/uncertain không chứng minh đã thanh toán; order/payload history vẫn được giữ
 sau cancel/expiry để payment intake ở T08 xử lý receipt tới trễ.
+
+Pre-checkout T07 kiểm tra buyer, XTR, giá snapshot, active product và exact reservation;
+approval/query ID giữ bền vững, chỉ gia hạn một lần từ DB time. Cùng query lặp lại không
+kéo dài TTL; query khác cho order đã approved bị từ chối. API timeout không reset approval.
+DB/validation budget 4s, API answer budget 3s; kiểm thử local không thay Telegram test/live.
+Polling hiện nhận pre_checkout_query nhưng luôn trả từ chối đến khi T08 có durable receipt
+intake; không có config flag mở sớm. Không có PAID/allocation chỉ từ approval.
+
+Polling dùng native aiogram concurrent update tasks, cap 32, để một download import không
+chặn pre-checkout. Mỗi task có UoW riêng; shutdown đợi tối đa 10s rồi cancel/drain trước
+khi đóng Bot/DB. Drain dùng pending-task set private của aiogram 3.31.0 đã pin; kiểm tra lại
+khi nâng SDK. Chưa có nghiệm thu tải/latency của Telegram thật hoặc production ingress.
 
 ## Development polling và quyền Owner
 
@@ -174,7 +186,7 @@ hết hạn logic sau 10 phút hoặc mất khi restart/eviction; mở lại `/s
 
 Product metadata vẫn chỉ là dữ liệu công khai. Private key/license nằm trong inventory mã hóa
 của T05; file/reusable/manual payload thuộc T10. Không tự fetch URL, không hiển thị số stock
-giả hoặc nhận đơn qua polling; finite reservation có ở T06, public Buy chờ T07/T08.
+giả hoặc nhận đơn qua polling; finite reservation có ở T06, public Buy chờ T08.
 Ảnh/catalog thông báo trạng thái thật hiện có, chưa là Telegram external acceptance.
 `APP_ENV=test` không tự đổi Bot API sang Stars test server; setup chính thức thuộc T14.
 

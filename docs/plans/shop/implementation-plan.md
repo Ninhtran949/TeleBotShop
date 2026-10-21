@@ -1,6 +1,6 @@
 # Implementation plan và task ledger
 
-Status: **T01–T06 hoàn tất; T07–T18 pending**. Owner giao task tiếp theo (T06) ngày 2026-10-21. T05 đang staged, HEAD `9492004`; index giữ nguyên, T06 ở working tree. Không stage/commit/push hoặc tự mở rộng sang T07.
+Status: **T01–T07 hoàn tất; T08–T18 pending**. Owner giao T07 ngày 2026-10-21; Git sạch, HEAD `29be52d` khi bắt đầu. T07 ở working tree; không stage/commit/push hoặc tự mở rộng sang T08.
 
 ## Cách nhận và bàn giao task
 
@@ -329,7 +329,104 @@ Check scope: **H** = hai harness commands trong PROJECT. **C** = applicable lock
   Chưa Telegram test/live, hosted CI, Linux/macOS, production image/deploy hoặc backup/restore.
   **T06 hoàn tất; T07 pending, cần được giao riêng.**
 
-- [ ] **T07 — Pre-checkout boundary.** Depends: T06. Spec: OP-02,07. Scope: Telegram pre-checkout parsing/response + application validation/serialized approval. Acceptance: owner/currency/amount/payload/status/stock checks; duplicate query idempotent, query khác không double-approve; bounded DB/API deadline đáp ứng giới hạn Telegram. Verify: C + D và controlled timeout/contention tests; approval không được mark PAID.
+- [x] **T07 — Pre-checkout boundary.** Depends: T06. Spec: OP-02,07. Scope: Telegram pre-checkout parsing/response + application validation/serialized approval. Acceptance: owner/currency/amount/payload/status/stock checks; duplicate query idempotent, query khác không double-approve; bounded DB/API deadline đáp ứng giới hạn Telegram. Verify: C + D và controlled timeout/contention tests; approval không được mark PAID.
+
+  - [x] **T07.a — Contracts và approval schema.** Bounded opaque query ID, registered buyer, XTR/integer snapshot amount và exact payload; `0007_pre_checkout` lưu một immutable approval/order và unique query ID. Mở guard cho một lần gia hạn order + exact reserved unit, giữ nguyên migrations 0001–0006 và encrypted stock/history.
+  - [x] **T07.b — Serialized application approval.** Lock order→active product→exact reservation, đọc DB time sau locks; only unpaid/unexpired/SENDING|SENT|UNCERTAIN invoice. Same query idempotent không kéo dài TTL/audit, query khác không double-approve; new approval + max(old expiry, approval+15m) + unit expiry + audit cùng commit. Bounded total DB budget và race/rollback tests. Invoice reject sau approval giữ uncertain, không auto-release vì kết quả mâu thuẫn.
+  - [x] **T07.c — Telegram boundary và runtime safety.** PreCheckoutQuery parsing/use-case/AnswerPreCheckoutQuery, Vietnamese reject, bounded DB/API budgets, no network trong UoW, no blind answer retry. Polling nhận pre_checkout_query và trả unavailable tới khi T08 có durable receipt; không mở Buy hoặc thêm flag bỏ qua gate. Mock adapter và real PostgreSQL dispatcher tests cho success/reject/replay/contention/API uncertainty.
+  - [x] **T07.d — Review, regressions và evidence.** C+D+H, T06 upgrade preservation/metadata/downgrade guards, focused mutation probes, isolated wheel/runtime/audit, caller/docs/status và Git preservation. Dừng trước T08; không real Stars/messages/production writes.
+
+  Polling dùng native concurrent update tasks, cap 32, để pre-checkout không chờ sau import
+  download; mỗi update vẫn có UoW/session riêng. Kiểm tra SDK shutdown/drain cùng thay đổi.
+
+  Threat/failure focus: wrong buyer/amount/currency/payload, guessed/cross-order/replayed query,
+  stale/inactive/expired/reallocated stock, concurrent approval/cancel/expiry/product hide,
+  partial extension/audit or ambiguous commit, slow locks/pool/network and lost API answer.
+  Approval không mark PAID, không allocate/decrypt/send hàng; durable query binding không
+  reset sau timeout hoặc expiry. T08 vẫn phải lưu late/extra/unmatched receipts.
+
+  Hoàn tất 2026-10-21. Thay đổi: domain PreCheckout, callable port/4s DB budget,
+  PreCheckoutService, orders repository/port/model và migration `0007_pre_checkout`;
+  infrastructure Telegram router/3s answer budget; InvoiceService giữ UNCERTAIN nếu known
+  rejection tới sau approval. Bootstrap thêm fail-closed query handler và native concurrent
+  polling cap 32 + bounded drain; cập nhật Telegram fixtures/polling/migration callers.
+  Tests mới: unit validation, SDK contract, PostgreSQL approval/races/adapter/pool/deadline.
+  PROJECT/README/architecture/conventions/database/security và capability specs cập nhật.
+  Không thêm dependencies/config flag; migrations 0001–0006, ADRs, AGENTS/task/upstream giữ nguyên.
+
+  TDD evidence: missing PreCheckoutService làm focused suite fail trước implementation;
+  invoice reject sau approval làm order EXPIRED (test fail) trước guard UNCERTAIN;
+  runtime query trước wiring không có answer (test fail); approval TRUNCATE chưa bị chặn
+  (test fail) trước statement trigger. Contract phát hiện query.answer shortcut không áp
+  request_timeout; dùng Bot.answer_pre_checkout_query trực tiếp và verify timeout=3.
+
+  Final C+D+H (đều exit 0; CPython 3.12.15/uv+uv_build 0.13.4/Ruff 0.17.1/Pytest 9.1.1):
+
+  ```text
+  uv lock --check                                    # 50 resolved, lock unchanged
+  uv sync --locked --no-build                        # 49 checked
+  uv run --no-sync ruff check .                      # pass
+  uv run --no-sync ruff format --check .             # 161 owned Python files
+  uv run --no-sync pytest tests/unit tests/contract tests/architecture -q --tb=short
+                                                     # 332 passed, 17.19s
+  uv run --no-sync python scripts/check_architecture.py
+  uv build --no-sources                              # sdist + wheel
+  uv run --no-sync pytest tests/integration -q --tb=short
+                                                     # 160 passed, 98.32s, PostgreSQL 18.6
+  python scripts/verify_harness.py                   # six skills/hashes/references intact
+  python -B -m unittest discover -s tests -p test_harness.py -v
+                                                     # 6 passed, Python 3.11.9
+  uv audit --locked                                 # 49 deps, no known advisory/adverse status
+  ```
+
+  Ruff cache chuyển vào ignored `.cache/ruff-t07` qua RUFF_CACHE_DIR khi default cache có
+  Windows access warning; không sửa config/lint rules. D dùng APP_ENV=test và explicit
+  allowlisted TEST_DATABASE_URL/per-test schema markers, không production/default DB.
+  Duplicate approval barrier xác nhận **hai backend PIDs** trước release order lock;
+  same query không kéo dài TTL/audit, different/global reused query không double-approve.
+  Buyer/amount/payload/unsent/inactive/expired/wrong reservation fail closed; current catalog
+  price không thay snapshot. Approval-vs-cancel/expiry, old reservation/reallocation, DB time
+  sau lock wait, immediate/deferred audit failure và direct-SQL guards được kiểm chứng.
+  Approval/TTL trên order/unit/audit rollback cùng nhau; UPDATE/DELETE/TRUNCATE approval bị chặn.
+  T06 upgrade giữ order/invoice/reservation/ciphertext; metadata drift rỗng; downgrade không
+  approval giữ orders, downgrade có approval history bị từ chối.
+
+  SDK/real DB adapter kiểm tra commit trước answer/pool không giữ use-case connection,
+  wrong query safe Vietnamese reject, lost/network/decode/timeout answer không clear binding
+  hoặc blind retry. Real order lock 2s và exhausted pool total 4s trả answer trong <8s local;
+  không suy local measurement thành Telegram delivery SLO. Concurrent native dispatcher trả
+  pre-checkout khi message task đang chờ; shutdown normal/error/cancel/deadline drain hoặc
+  cancel+rollback task trước Bot/engine close. Không shared AsyncSession hoặc network trong UoW.
+
+  Self-review code-review-and-quality/security-and-hardening: ownership/snapshots/unique
+  query binding, lock order, atomic extension/audit, expiry and ambiguous API boundaries đã
+  đọc cùng callers; không còn Critical/High trong T07 scope. Bốn mutation probes invert buyer,
+  bỏ amount check, cho different query pass, mở runtime gate: mỗi probe đúng một focused test
+  fail; restore source byte-for-byte rồi chạy final C/D. SDK drain dùng private pending-task
+  set của pinned aiogram 3.31.0 vì chưa có public API; có `shortcut:` và lifecycle regression
+  tests, phải review lại khi nâng SDK. Saturated/live polling load chưa được nghiệm thu.
+
+  Wheel gate theo README: locked runtime export, fresh isolated venv, offline hash-checked
+  binary dependencies, no-index/no-deps install wheel. **69 wheel source modules** khớp
+  working tree; sdist/wheel không có tools/cache/secrets. Python -I import cả package với
+  poisoned settings/no network/no pytest và native AES-GCM roundtrip pass. Native uv audit
+  còn experimental, không thay source/container/production review.
+
+  Final static checks: **28 T07 files (10 new)**, 9 Markdown files/48 local links, balanced
+  fences và `git diff --check` exit 0; không trailing whitespace kể cả new files. Starting
+  staged diff/HEAD/branch và protected files giữ nguyên; chỉ T01–T07 được tick done.
+
+  Cleanup: verify labels project/service/absolute workspace, query **0 tbs_test_* schemas,
+  0 other test connections**, stop riêng postgres-test đã start cho T07. Không xóa volume
+  hoặc dừng Docker Desktop; không stage/commit/push.
+
+  Giới hạn: OP-02/07 chỉ finite pre-payment validation/approval T07; chưa receipt/PAID,
+  allocation/fulfillment/payment-vs-expiry hoặc public Buy. Runtime router luôn reject tới
+  T08 có durable intake; không bật approval bằng flag và không claim đang nhận tiền.
+  Approval không chứng minh đã thanh toán; same query replay vẫn phải còn current-valid,
+  không reset history sau timeout/cancel/expiry. Telegram test/live, hosted CI, Linux/macOS,
+  production image/deploy/restore và live latency/load chưa kiểm chứng.
+  **T07 hoàn tất; T08 pending, cần được giao riêng.**
 
 - [ ] **T08 — Durable payment receipt và fulfillment intent.** Depends: T07. Spec: OP-03..05,07. Scope: payments/fulfillments contract, successful-payment handler và atomic UoW. Acceptance: duplicate/conflicting/extra/late/unknown receipts được giữ đúng; matched payment + allocation + work atomic; webhook không ack trước durable outcome. Verify: C + D, concurrent duplicates, injected commit failure và payment-vs-expiry race; no delivery call trong handler.
 

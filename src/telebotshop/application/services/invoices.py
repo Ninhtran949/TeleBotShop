@@ -6,6 +6,7 @@ from telebotshop.application.services.orders import close_unpaid, owned_order
 from telebotshop.domain.errors import InvalidAction
 from telebotshop.domain.models.orders import (
     CloseReason,
+    InvoiceDelivery,
     InvoiceRequest,
     InvoiceStatus,
     Order,
@@ -53,6 +54,11 @@ class InvoiceService:
                 return order
             if order.invoice_status == delivery.status == InvoiceStatus.UNCERTAIN:
                 return order
+            if (
+                delivery.status == InvoiceStatus.REJECTED
+                and await work.orders.approved_query(order.id) is not None
+            ):
+                delivery = InvoiceDelivery(InvoiceStatus.UNCERTAIN)
             await work.orders.finish_invoice(order, delivery)
             await work.orders.audit(order, f"invoice.{delivery.status.value.lower()}")
             if (

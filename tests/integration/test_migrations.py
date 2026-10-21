@@ -1,5 +1,6 @@
 from functools import partial
 from pathlib import Path
+from uuid import uuid4
 
 import pytest
 from alembic import command
@@ -7,16 +8,20 @@ from alembic.autogenerate import compare_metadata
 from alembic.config import Config
 from alembic.migration import MigrationContext
 from sqlalchemy import Connection, text
+from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncEngine
 
 from telebotshop.application.services.access import AccessService
 from telebotshop.application.services.catalog import CatalogService
+from telebotshop.application.services.pre_checkout import PreCheckoutService
 from telebotshop.domain.models.access import ROLE_PERMISSIONS
 from telebotshop.domain.models.inventory import ImportFormat
 from telebotshop.infrastructure.database.models.identity import metadata
 from telebotshop.infrastructure.database.schema import SCHEMA_HEAD
 from telebotshop.infrastructure.database.uow import unit_of_work
 from tests.inventory import inventory_service, setup_inventory
+from tests.orders import historical_order, order_service, setup_orders
+from tests.pre_checkout import checkout_request, payable_invoice
 
 
 @pytest.mark.asyncio
@@ -35,6 +40,56 @@ async def test_t04_upgrade_preserves_catalog_audit_and_pending_product_confirmat
         assert await connection.scalar(text("SELECT count(*) FROM inventory_units")) == 0
     assert await catalog.confirm(9001, pending.id) is True
     assert (await catalog.admin_product(9001, "DEMO-1")).draft.price_stars == 300
+
+
+@pytest.mark.asyncio
+async def test_t06_upgrade_preserves_order_invoice_reservation_ciphertext_and_action(database):
+    async with database.begin() as connection:
+        await connection.run_sync(upgrade, "0006_orders")
+    product = await setup_orders(database)
+    order = await historical_order(database, product)
+    await payable_invoice(database, order)
+    before_order = await order_service(database).get(101, order.id)
+    async with database.begin() as connection:
+        before = (await connection.execute(text("SELECT * FROM inventory_units"))).one()
+        intent = (await connection.execute(text("SELECT * FROM invoice_intents"))).one()
+        await connection.run_sync(upgrade)
+        assert (await connection.execute(text("SELECT * FROM inventory_units"))).one() == before
+        assert (await connection.execute(text("SELECT * FROM invoice_intents"))).one() == intent
+        assert await connection.scalar(text("SELECT count(*) FROM pre_checkout_approvals")) == 0
+    assert await order_service(database).get(101, order.id) == before_order
+    assert await order_service(database).expire() == 1
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("approved", [False, True])
+async def test_t07_downgrade_preserves_orders_and_refuses_approval_history(
+    migrated_database, approved
+):
+    engine = migrated_database
+    product = await setup_orders(engine)
+    order = await order_service(engine).create(101, product.id, uuid4())
+    await payable_invoice(engine, order)
+    check = PreCheckoutService(partial(unit_of_work, engine))
+    if approved:
+        assert await check.check(checkout_request(order)) is True
+
+    def downgrade(sync):
+        config = Config("alembic.ini")
+        config.attributes["connection"] = sync
+        command.downgrade(config, "0006_orders")
+
+    if approved:
+        with pytest.raises(DBAPIError):
+            async with engine.begin() as connection:
+                await connection.run_sync(downgrade)
+        assert await check.check(checkout_request(order)) is True
+    else:
+        async with engine.begin() as connection:
+            await connection.run_sync(downgrade)
+            assert await connection.scalar(text("SELECT status FROM inventory_units")) == "RESERVED"
+            await connection.run_sync(upgrade)
+        assert await check.check(checkout_request(order)) is True
 
 
 @pytest.mark.asyncio

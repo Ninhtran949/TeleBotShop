@@ -1,6 +1,6 @@
 # Spec: orders-payments
 
-Status: T06 finite order/reservation/expiry và durable invoice intent/Stars adapter đã triển khai; public Buy, pre-checkout, receipt, fulfillment/refund còn T07–T13. Chưa nghiệm thu toàn OP hoặc live Stars. Nguồn: `task.md` §§3,5,8,11. Depends on: [identity-access](identity-access.md), [catalog-inventory](catalog-inventory.md). Quyết định an toàn: [ADR-0002](../../adr/0002-payment-and-fulfillment-safety.md).
+Status: T06 finite order/invoice intent và T07 serialized pre-checkout validation/approval đã triển khai; public Buy/receipt, fulfillment/refund còn T08–T13. Polling từ chối approval tới khi có durable receipt intake. Chưa nghiệm thu toàn OP hoặc live Stars. Nguồn: `task.md` §§3,5,8,11. Depends on: [identity-access](identity-access.md), [catalog-inventory](catalog-inventory.md). Quyết định an toàn: [ADR-0002](../../adr/0002-payment-and-fulfillment-safety.md).
 
 ## Order và invoice
 
@@ -28,6 +28,18 @@ Check order ownership, active product, snapshot amount, `XTR`, invoice payload/o
 Serialize approval theo order: persist pre-checkout query ID đã được chấp thuận; cùng query ID được xử lý idempotent, query khác cho order đã approved bị reject. Không tự reset approval để approve invoice thứ hai khi chưa biết payment outcome; khách muốn checkout mới phải có action/order mới. Cách này giảm double-charge từ hai invoice cùng order; extra receipt vẫn phải được lưu nếu xảy ra.
 
 Approval chỉ cho phép tiếp tục thanh toán, không chứng minh đã trả tiền. Invoice dành cho buyer của order; forwarded invoice/different user không được dùng để nhận entitlement. Stars invoice dùng currency XTR và một price component; optional provider token bỏ trống/không dùng third-party provider cho flow này.
+
+T07: `0007_pre_checkout` lưu một immutable approval/order và unique query ID; gia hạn
+order/exact reserved unit/audit atomic, DB time sau order→product→unit locks. Cùng query
+không kéo dài TTL/audit và vẫn kiểm tra current validity; khác query bị từ chối. Invoice
+SENDING/SENT/UNCERTAIN được xét theo owner/price/reservation, READY/REJECTED không được.
+Known invoice rejection sau approval giữ UNCERTAIN thay vì release. Cancel/expiry giữ
+approval history; replay của order expired/cancelled không approve lại.
+Adapter có 4s DB/validation + 3s API answer budget theo
+[answerPreCheckoutQuery](https://core.telegram.org/bots/api#answerprecheckoutquery), không
+gọi network trong transaction; timeout/lost answer không reset binding hoặc blind retry.
+Query ID cap 256 ký tự là input policy dự án, không phải giới hạn Telegram công bố.
+Runtime nhận query và trả unavailable tới T08; chưa bật Buy hoặc approval khi thiếu receipt.
 
 ## Payment receipt và atomic transition
 

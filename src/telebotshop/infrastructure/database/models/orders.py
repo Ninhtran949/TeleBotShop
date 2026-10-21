@@ -97,3 +97,19 @@ sa.Index(
     invoice_intents.c.order_id,
     postgresql_where=sa.text("status = 'SENDING'"),
 )
+pre_checkout_approvals = sa.Table(
+    "pre_checkout_approvals",
+    metadata,
+    sa.Column(
+        "order_id",
+        sa.Uuid,
+        sa.ForeignKey("orders.id", name="fk_pre_checkout_order"),
+        primary_key=True,
+    ),
+    sa.Column("query_id", sa.String(256), nullable=False),
+    sa.Column("approved_at", sa.DateTime(timezone=True), nullable=False),
+    sa.UniqueConstraint("query_id", name="uq_pre_checkout_query"),
+    sa.CheckConstraint(
+        "length(btrim(query_id)) > 0 AND query_id !~ '[[:cntrl:]]'", name="ck_pre_checkout_query"
+    ),
+)

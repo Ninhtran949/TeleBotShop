@@ -3,7 +3,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 from aiogram import Bot
-from aiogram.methods import AnswerCallbackQuery, TelegramMethod
+from aiogram.methods import AnswerCallbackQuery, AnswerPreCheckoutQuery, TelegramMethod
 from aiogram.types import Chat, Message, Update, User
 
 FAKE_TOKEN = "123456:FAKE_token_only_for_offline_contract_tests"
@@ -19,7 +19,7 @@ class TelegramRecorder:
         self, bot: Bot, method: TelegramMethod, timeout: int | None = None
     ) -> Message | bool:
         self.calls.append(method)
-        if isinstance(method, AnswerCallbackQuery):
+        if isinstance(method, AnswerCallbackQuery | AnswerPreCheckoutQuery):
             return True
         return Message(
             message_id=20,
@@ -28,6 +28,29 @@ class TelegramRecorder:
             from_user=User(id=bot.id, is_bot=True, first_name="Bot"),
             text="Test reply",
         ).as_(bot)
+
+
+def pre_checkout_update(
+    *,
+    payload: str = "x" * 32,
+    query_id: str = "fake_query",
+    actor: int = 101,
+    currency: str = "XTR",
+    amount: int = 100,
+    is_bot: bool = False,
+) -> Update:
+    return Update.model_validate(
+        {
+            "update_id": 3,
+            "pre_checkout_query": {
+                "id": query_id,
+                "from": {"id": actor, "is_bot": is_bot, "first_name": "Fake"},
+                "currency": currency,
+                "total_amount": amount,
+                "invoice_payload": payload,
+            },
+        }
+    )
 
 
 def message_update(

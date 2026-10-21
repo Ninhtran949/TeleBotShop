@@ -1,4 +1,4 @@
-# Security controls — T03–T06
+# Security controls — T03–T07
 
 Phạm vi hiện có: identity, permission, audit, public catalog/admin, encrypted key/license
 inventory và development polling. Đây là controls đã
@@ -59,8 +59,8 @@ transfer không có command trong T03; mismatch cần khôi phục đúng config
 ownership riêng được Owner cho phép.
 
 Development polling chỉ nhận `development`/`test`, kiểm tra schema trước xử lý, từ chối
-webhook đang cấu hình và không xóa/drop updates. Process xử lý tuần tự từng update; SDK
-session và DB engine đóng qua context/finally kể cả lỗi/cancellation. HTTP health độc lập
+webhook đang cấu hình và không xóa/drop updates. T07 concurrent tasks cap 32, mỗi task
+có session riêng; shutdown drain/cancel trước khi đóng SDK session/DB engine. HTTP health độc lập
 với BOT_TOKEN/OWNER_ID/inventory keys; token chỉ đọc khi operator chủ động chạy polling. Automated tests
 dùng fake token và mock Telegram transport, không gửi messages hoặc đổi tài khoản thật.
 
@@ -75,7 +75,16 @@ nonempty start_parameter. Không xin name/email/phone/shipping, không dùng pay
 ngoài Stars. SDK error/body/token không đi vào DTO/log; known rejection khác unknown send.
 SENDING/UNCERTAIN không tự retry, kể cả crash hoặc mất commit sau send. Claims cũ được
 DB-only maintenance đánh dấu UNCERTAIN, giữ history chờ reconciliation. Chưa có permissioned
-invoice resend/reconcile command hoặc public Buy trước T07/T08, không có live payment intake.
+invoice resend/reconcile command hoặc public Buy trước T08, không có live payment intake.
+
+T07 validate query ID (opaque, tối đa 256 ký tự, không control), server nonce payload,
+positive integer amount và Telegram buyer; không log raw query/order_info/SDK error.
+Buyer/current product/state/exact reservation được kiểm tra trong locked UoW. One approval
+per order/query; DB chặn mutate/delete/truncate, expiry không clear query binding. Approval,
+hai TTL và audit atomic; API answer sau commit, uncertainty không auto-reset/retry.
+Runtime checker luôn từ chối pre-checkout tới T08; domain/service success chỉ chứng minh
+trên PostgreSQL thật + Telegram mock. Không có flag nhận tiền trước durable receipt.
+Giới hạn DB 4s/API 3s được kiểm tra với real lock/pool contention; chưa là Telegram live SLO.
 
 Giới hạn cần hoàn thiện ở task tương ứng:
 

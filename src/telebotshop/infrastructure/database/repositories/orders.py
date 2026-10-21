@@ -2,6 +2,7 @@ from datetime import datetime
 from uuid import UUID, uuid4
 
 from sqlalchemy import RowMapping, func, insert, select, text, update
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from telebotshop.application.ports.orders import OrderRepository
@@ -17,7 +18,12 @@ from telebotshop.domain.models.orders import (
 )
 from telebotshop.infrastructure.database.models.identity import audit_logs, users
 from telebotshop.infrastructure.database.models.inventory import inventory_units
-from telebotshop.infrastructure.database.models.orders import invoice_intents, order_items, orders
+from telebotshop.infrastructure.database.models.orders import (
+    invoice_intents,
+    order_items,
+    orders,
+    pre_checkout_approvals,
+)
 
 
 def order_query():
@@ -105,6 +111,22 @@ class SqlOrderRepository(OrderRepository):
         row = (await self.session.execute(query)).mappings().one_or_none()
         return None if row is None else order_from_row(row)
 
+    async def by_payload(self, payload: str) -> Order | None:
+        row = (
+            (
+                await self.session.execute(
+                    order_query()
+                    .where(
+                        invoice_intents.c.payload == payload,
+                    )
+                    .with_for_update(of=orders)
+                )
+            )
+            .mappings()
+            .one_or_none()
+        )
+        return None if row is None else order_from_row(row)
+
     async def available_unit(self, product_id: UUID) -> UUID | None:
         return await self.session.scalar(
             select(inventory_units.c.id)
@@ -162,20 +184,61 @@ class SqlOrderRepository(OrderRepository):
             )
         )
 
-    async def has_reservation(self, order: Order) -> bool:
+    async def has_reservation(self, order: Order, *, for_update: bool = False) -> bool:
+        query = select(inventory_units.c.id).where(
+            inventory_units.c.id == order.unit_id,
+            inventory_units.c.product_id == order.product_id,
+            inventory_units.c.status == InventoryState.RESERVED,
+            inventory_units.c.reservation_item_id == order.item_id,
+            inventory_units.c.reservation_expires_at == order.expires_at,
+        )
+        if for_update:
+            query = query.with_for_update()
+        return await self.session.scalar(query) is not None
+
+    async def approved_query(self, order_id: UUID) -> str | None:
+        return await self.session.scalar(
+            select(pre_checkout_approvals.c.query_id).where(
+                pre_checkout_approvals.c.order_id == order_id,
+            )
+        )
+
+    async def save_approval(self, order_id: UUID, query_id: str, approved_at: datetime) -> bool:
         return (
             await self.session.scalar(
-                select(func.count())
-                .select_from(inventory_units)
+                pg_insert(pre_checkout_approvals)
+                .values(
+                    order_id=order_id,
+                    query_id=query_id,
+                    approved_at=approved_at,
+                )
+                .on_conflict_do_nothing()
+                .returning(pre_checkout_approvals.c.order_id)
+            )
+            is not None
+        )
+
+    async def extend_reservation(self, order: Order, expires_at: datetime) -> bool:
+        await self.session.execute(
+            update(orders)
+            .where(orders.c.id == order.id)
+            .values(
+                expires_at=expires_at,
+            )
+        )
+        return (
+            await self.session.scalar(
+                update(inventory_units)
                 .where(
                     inventory_units.c.id == order.unit_id,
-                    inventory_units.c.product_id == order.product_id,
                     inventory_units.c.status == InventoryState.RESERVED,
                     inventory_units.c.reservation_item_id == order.item_id,
                     inventory_units.c.reservation_expires_at == order.expires_at,
                 )
+                .values(reservation_expires_at=expires_at)
+                .returning(inventory_units.c.id)
             )
-            == 1
+            is not None
         )
 
     async def close(self, order: Order, reason: CloseReason) -> None:

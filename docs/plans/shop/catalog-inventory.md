@@ -1,6 +1,6 @@
 # Spec: catalog-inventory
 
-Status: T04 public catalog/admin, T05 encrypted finite inventory và T06 finite reservation/expiry đã triển khai; public checkout/payment/fulfillment và nonfinite secret payload tiếp tục theo T07–T10. Chưa nghiệm thu toàn CI-01..06 hoặc live Telegram. Nguồn: `task.md` §§3,4,8,10. Depends on: [identity-access](identity-access.md).
+Status: T04 public catalog/admin, T05 encrypted finite inventory, T06 reservation/expiry và T07 approval extension đã triển khai; public checkout/payment/fulfillment và nonfinite secret payload tiếp tục theo T08–T10. Chưa nghiệm thu toàn CI-01..06 hoặc live Telegram. Nguồn: `task.md` §§3,4,8,10. Depends on: [identity-access](identity-access.md).
 
 ## Catalog và product contracts
 
