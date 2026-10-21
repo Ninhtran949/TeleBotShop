@@ -1,6 +1,6 @@
 # Implementation plan và task ledger
 
-Status: **design baseline và T01/T02 hoàn tất; T03–T18 pending**. Đã có runtime/health và database foundation local; business flows chưa triển khai. Agent chỉ làm task/phase được giao, không tự coi roadmap là authorization. Owner giao T01 rồi T02 ngày 2026-10-21; không mở rộng authorization sang T03.
+Status: **T01–T03 hoàn tất; T04–T18 pending**. Owner giao tiếp T03 ngày 2026-10-21. Khi bắt đầu T03, T02 đang staged; kiểm tra sau đó thấy T02 đã có commit `6f21cec`. Agent T03 không commit/push hoặc tự mở rộng sang T04.
 
 ## Cách nhận và bàn giao task
 
@@ -90,7 +90,53 @@ Check scope: **H** = hai harness commands trong PROJECT. **C** = applicable lock
 
   Giữ nguyên AGENTS, `task.md`, ADRs, `.agents/`, attributes, Python pin, verifier/harness tests. Source changes gồm config/API/bootstrap/UoW/readiness/schema contracts và package initializers cần dùng; fixtures/tests, Alembic/Compose/init SQL, manifest/lock và docs đi cùng. Không có Git commit/push, hosted CI, Python runtime Linux/macOS, Telegram test/live, production image/deployment hoặc backup/restore acceptance. Ranh giới tiếp theo là **T03, pending**, chưa được thực hiện.
 
-- [ ] **T03 — Identity, permissions và audit foundation.** Depends: T02. Spec: IA-01..05, AO-01. Scope: user/role/permission/audit schema + use cases, `/start`/Owner bootstrap, Owner grant/revoke UI và safe settings/admin menu foundation. Acceptance: idempotent profile; current permission/default deny kể cả direct use-case call; Owner mismatch không tự cấp quyền; transactional audit cho protected mutations. Verify: C + D, concurrent identity/permission and audit rollback tests.
+- [x] **T03 — Identity, permissions và audit foundation.** Depends: T02. Spec: IA-01..05, AO-01. Scope: user/role/permission/audit schema + use cases, `/start`/Owner bootstrap, Owner grant/revoke UI và safe settings/admin menu foundation. Acceptance: idempotent profile; current permission/default deny kể cả direct use-case call; Owner mismatch không tự cấp quyền; transactional audit cho protected mutations. Verify: C + D, concurrent identity/permission and audit rollback tests.
+
+  - [x] **T03.a — Identity và Owner bootstrap.** Domain DTO/validation, application ports/use cases, PostgreSQL repositories/UoW, additive Alembic revision, aiogram `/start` và private profile/Home navigation. Chứng minh concurrent upsert giữ UUID/registration, không tăng quyền; bootstrap serialize qua persisted singleton, mismatch/missing persisted Owner role fail-closed, không tự restore quyền. Thêm SDK đúng aiogram 3.x trong manifest/lock, không đổi stack ADR.
+  - [x] **T03.b — Permissions, audit và confirmation.** Roles là capability ceilings, từng staff chỉ có explicit grants; Owner-only quản lý quyền/settings. Direct calls đọc quyền hiện tại trong transaction; SUPPORT phải có ticket assignment từ dữ liệu server. PostgreSQL confirmation token ràng buộc actor/target/version/expiry, dedup và audit append-only cùng transaction. Tests grant/revoke/race/stale/replay, audit/commit failure rollback, constraints và customer/staff scope. Chưa tạo orders/tickets/refunds để giả nghiệm thu các task sau.
+  - [x] **T03.c — Admin/settings UI và runtime wiring.** `/admin`, Owner grant/revoke confirmation, non-secret support username setting (mặc định chưa cấu hình), Back/Home/Cancel, guards cho private chat/callback/actor và bounded single-process rate limit. Settings không chứa secret hoặc owner transfer. Development polling là entrypoint riêng; không delete webhook/drop pending updates, không chạy bot thật; HTTP health giữ độc lập. Adapter contracts mock Telegram, integration dùng PostgreSQL thật.
+  - [x] **T03.d — Review, gates và bàn giao.** C + D + H, migration từ T02/head và metadata drift, installed-wheel/import/dependency checks, diff/security self-review; cập nhật PROJECT/ARCHITECTURE/DATABASE/SECURITY/README/env example và evidence ngay tại đây. Chỉ đóng T03 khi đủ các child; T04 chưa được thực hiện.
+
+  Threat/failure focus: forged username/actor/callback, group/inaccessible/inline message, cached roles sau revoke, concurrent bootstrap/grant/revoke và stale confirmation, audit tampering/failure, secret/profile leakage trong SDK/config/DB errors. Telegram sends luôn sau khi đóng UoW; database exceptions chỉ hiện thông báo vận hành chung. Owner transfer/live setup/production authorization và customer order/ticket integration thuộc task riêng.
+
+
+  **Acceptance/evidence T03 (2026-10-21, Windows x86_64, CPython 3.12.15, PostgreSQL 18.6):**
+
+  T03.a: concurrent upsert giữ UUID/registration và update profile không tăng quyền; cùng/different Owner IDs serialize vào một Owner/audit. Restart/Owner mismatch hoặc missing persisted role fail-closed, không regrant. Private profile use case xác minh ownership cả khi repository trả sai profile. Bootstrap không tự bịa username/display name của Owner chưa `/start`.
+
+  T03.b: ADMIN/SUPPORT role là ceiling, authority cần explicit grants; Owner access/settings permissions không delegate. SUPPORT cần server-loaded assignment. Confirm ràng buộc actor/target/version/expiry; same-token race/replay chỉ một mutation/audit, competing grants yêu cầu confirmation mới; replay grant sau revoke không phục hồi quyền. FK/unique constraints chặn second Owner/unknown/duplicate grants. Audit BEFORE INSERT failure và deferred commit failure đều rollback role/grant/version/action; append-only trigger chặn UPDATE/DELETE/TRUNCATE. Read permission SHARE lock giữ tới hết use-case transaction, concurrent revoke timeout rồi thành công sau khi release.
+
+  T03.c: `/start`, profile, Home/Back/Cancel; `/admin`, Owner `/grant`/`/revoke` và `/setsupport` tạo confirmation, không sửa ngay. Staff menu chỉ hiển thị grants hiện tại; không có mock dashboard/catalog/refund controls. Guard chặn group/bot/mismatched private ID/inline/inaccessible callbacks; unknown/tampered callback không mutate. Single-ingress rate cap và secret/PII redaction có tests. Dispatcher → use cases → PostgreSQL thật → Telegram mock được kiểm tra không còn checked-out connection khi send/edit/ack. Polling lifecycle mock xác minh existing webhook refusal (không delete/drop), Owner bootstrap, sequential updates và close client/pool cả khi API failure/cancellation. HTTP config vẫn độc lập BOT_TOKEN/OWNER_ID.
+
+  Files: thêm `domain/errors.py`, `domain/models/{identity,access,admin}.py`, application identity/access ports/services và UoW factory contract; SQLAlchemy Core models/repositories, `0002_identity.py`/`0003_access.py`, metadata/head; customer/admin routers, ingress/logging controls và composition/config/CLI. Cập nhật manifest/lock, isolated fixtures và unit/contract/PostgreSQL tests. Docs: README, PROJECT, ARCHITECTURE, CONVENTIONS, DATABASE, SECURITY, identity/admin specs, ledger và `.env.example` (bot fields trống). Giữ nguyên `0001_runtime`, AGENTS, `task.md`, accepted ADRs, `.agents/`, attributes, Python/uv pins, architecture checker và harness.
+
+  Dependency compatibility: official aiogram 3.31.0 metadata yêu cầu Pydantic `<2.14`; pin Pydantic **2.13.5** thay T02 2.14.1, giữ Settings 2.16.1 và các direct runtime pins khác. `uv.lock` có 47 packages gồm project; wheel runtime có 34 third-party packages. Sources/constraint links trong README; không đổi stack/ADR hoặc chạy third-party source build.
+
+  `uv` dưới đây là workspace-local `.tools/uv/Scripts/uv.exe` 0.13.4; cache/interpreter environment theo README. Tất cả kết quả cuối exit 0:
+
+  | Command/check | Result |
+  | --- | --- |
+  | `uv lock --check`; `uv sync --locked --no-build` | PASS; 47 resolved, 46 installed dependencies checked. |
+  | `uv run --no-sync ruff check .`; `uv run --no-sync ruff format --check .` | PASS; 95 owned Python files formatted, không sửa upstream skills hoặc nới rules. |
+  | `uv run --no-sync pytest tests/unit tests/contract tests/architecture -q --tb=short` | **164 passed**, gồm T02 regression contracts dưới Pydantic 2.13.5. |
+  | `uv run --no-sync pytest tests/integration -q --tb=short` | **40 passed** trên PostgreSQL 18.6 thật; explicit APP_ENV/test DSN/DB marker và per-test owned schema. |
+  | `uv run --no-sync python scripts/check_architecture.py` | PASS; import matrix/domain/application/adapters. |
+  | Migration tests trong D | PASS; clean/base/T02→identity→access upgrade, preserve profile/Owner/registration, metadata/defaults diff rỗng, seed role-permission matrix khớp domain, exact head `0003_access`. |
+  | `uv build --no-sources` | PASS; sdist→wheel 0.1.0. Inspect hai archives: đúng 38 package Python sources, khớp bytes working tree, không tools/cache/venv/env/skills. |
+  | `uv export --locked --no-dev --no-emit-project --format requirements-txt --output-file .cache/t03/runtime-requirements.txt` | PASS; artifact ignored, vẫn chỉ một lockfile. |
+  | `uv venv --python .venv/Scripts/python.exe .cache/t03-wheel-runtime`; runtime install theo README | PASS; 34 deps cài `--require-hashes --no-build`; wheel cài `--no-index --no-deps`; không dev dependencies. |
+  | `.cache/t03-wheel-runtime/Scripts/python.exe -I` import smoke | PASS; all package modules import từ isolated wheel, poisoned settings không được load và socket-connect stub không bị gọi; không Pytest. |
+  | `uv pip check --python .cache/t03-wheel-runtime/Scripts/python.exe` | PASS; 35 packages kể cả project compatible. |
+  | `uv audit --locked` | PASS; 46 third-party packages không có known vulnerabilities/adverse statuses theo OSV tại lúc chạy. Native command experimental; chưa là source/container/production security audit. |
+  | `python scripts/verify_harness.py` | PASS; six upstream skills/hash/reference paths/layout giữ nguyên. |
+  | `python -B -m unittest discover -s tests -p test_harness.py -v` | **6 tests, OK**, system Python 3.11.9 độc lập app environment. |
+  | `git diff --check`; document/status audit | PASS; 9 changed/new Markdown files, 45 local links hợp lệ, fences đóng đủ; chỉ T01/T02/T03 và bốn T03 child được tick done. |
+
+  Review/evidence quality: tạm bỏ current permission check làm regression **1 failed**; tạm bỏ audit làm failure/rollback tests **2 failed**. Đã khôi phục nguyên bytes source, rồi chạy final C/D pass như trên. Profile malformed-type regression trước fix **3 failed, 12 passed**; wrong-profile ownership regression trước fix **1 failed, 15 passed**; sau fix final C164/D40. Focused self-review đi qua handler→use case→repo/locks/audit/commit→send, không còn Critical/High được phát hiện trong scope. Một lần aggregate D lỗi 14 fixture connections vì container đã dừng, đã xác minh/start lại đúng service và chạy final D thật; không đổi/skip tests để che lỗi môi trường.
+
+  Cleanup: xác minh container labels project `telebotshop-t02`, service `postgres-test`, absolute workspace; query thấy **0 `tbs_test_*` schemas và 0 other test connections**, rồi `docker compose -p telebotshop-t02 --profile test stop postgres-test` thành công. Không drop DB/dev volume hoặc dừng Docker Desktop toàn máy.
+
+  Giới hạn: rate counters là single-process, access/settings lock bảo thủ; expired confirmations/audit chưa auto-delete khi chưa có Owner retention policy; production role separation/restore chưa kiểm chứng. Telegram API/polling lifecycle dùng mock, không BotFather/test/live messages, webhook changes, native polling signal smoke, hosted CI, Linux/macOS runtime, production image/deploy hoặc real payments/refunds. IA-05/AO-01 ở đây là identity/permission/settings foundation; actual order/ticket/refund/catalog flows còn theo task sở hữu, không claim toàn capability. Không commit/push. **T03 hoàn tất, dừng tại ranh giới T04 pending.**
 
 - [ ] **T04 — Catalog và admin product maintenance.** Depends: T03. Spec: CI-01,04; AO-01,06. Scope: categories/products + validated five-type metadata, browse/search/pagination, staff product/price/sale-state mutations. Acceptance: dữ liệu DB thật; safe Việt navigation; owner-authorized writes có audit, read models không có secret. Verify: C + D, permission/tampered callback/pagination/price-change tests. Seed chỉ là demo/test inventory hợp pháp giả, không thay nguồn dữ liệu runtime.
 

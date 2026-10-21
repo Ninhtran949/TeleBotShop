@@ -1,0 +1,16 @@
+from typing import Protocol
+from uuid import UUID
+
+from telebotshop.domain.models.identity import CustomerIdentity, Profile
+
+
+class IdentityRepository(Protocol):
+    async def upsert_customer(self, identity: CustomerIdentity) -> Profile: ...
+
+    async def get_profile(self, telegram_id: int) -> Profile | None: ...
+
+    async def lock_owner(self) -> UUID | None: ...
+
+    async def is_owner(self, user_id: UUID) -> bool: ...
+
+    async def assign_first_owner(self, user_id: UUID) -> None: ...

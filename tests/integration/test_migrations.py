@@ -2,10 +2,14 @@ from pathlib import Path
 
 import pytest
 from alembic import command
+from alembic.autogenerate import compare_metadata
 from alembic.config import Config
+from alembic.migration import MigrationContext
 from sqlalchemy import Connection, text
 from sqlalchemy.ext.asyncio import AsyncEngine
 
+from telebotshop.domain.models.access import ROLE_PERMISSIONS
+from telebotshop.infrastructure.database.models.identity import metadata
 from telebotshop.infrastructure.database.schema import SCHEMA_HEAD
 
 
@@ -39,3 +43,45 @@ async def test_upgrade_from_base_is_repeatable_and_preserves_existing_rows(
         assert (
             await connection.scalars(text("SELECT version_num FROM alembic_version"))
         ).all() == [SCHEMA_HEAD]
+
+
+@pytest.mark.asyncio
+async def test_t02_upgrade_and_identity_upgrade_preserve_profiles_and_owner(
+    database: AsyncEngine,
+) -> None:
+    async with database.begin() as connection:
+        await connection.run_sync(upgrade, "0001_runtime")
+        await connection.run_sync(upgrade, "0002_identity")
+        await connection.execute(text("INSERT INTO users (telegram_id) VALUES (9001)"))
+        user_id = await connection.scalar(text("SELECT id FROM users"))
+        await connection.execute(text("INSERT INTO user_roles SELECT id, 'OWNER' FROM users"))
+        await connection.execute(
+            text("UPDATE shop_settings SET owner_user_id = :id"), {"id": user_id}
+        )
+        registered = await connection.scalar(text("SELECT registered_at FROM users"))
+        await connection.run_sync(upgrade)
+        assert await connection.scalar(text("SELECT id FROM users")) == user_id
+        assert await connection.scalar(text("SELECT registered_at FROM users")) == registered
+        assert await connection.scalar(text("SELECT owner_user_id FROM shop_settings")) == user_id
+        assert await connection.scalar(text("SELECT role FROM user_roles")) == "OWNER"
+
+
+@pytest.mark.asyncio
+async def test_migration_matches_metadata_and_role_permission_contract(
+    migrated_database: AsyncEngine,
+) -> None:
+    async with migrated_database.connect() as connection:
+        differences = await connection.run_sync(
+            lambda sync: compare_metadata(
+                MigrationContext.configure(sync, opts={"compare_server_default": True}), metadata
+            )
+        )
+        assert differences == []
+        rows = (
+            await connection.execute(text("SELECT role, permission FROM role_permissions"))
+        ).all()
+        assert set(rows) == {
+            (role.value, permission.value)
+            for role, permitted in ROLE_PERMISSIONS.items()
+            for permission in permitted
+        }

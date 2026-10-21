@@ -4,11 +4,15 @@ from contextlib import asynccontextmanager
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
 from telebotshop.application.ports.uow import UnitOfWork
+from telebotshop.infrastructure.database.repositories.access import SqlAccessRepository
+from telebotshop.infrastructure.database.repositories.identity import SqlIdentityRepository
 
 
 class SqlAlchemyUnitOfWork(UnitOfWork):
     def __init__(self, session: AsyncSession) -> None:
         self.session = session
+        self.identity = SqlIdentityRepository(session)
+        self.access = SqlAccessRepository(session)
 
     async def commit(self) -> None:
         await self.session.commit()

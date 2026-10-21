@@ -1,6 +1,6 @@
 # Spec: identity-access
 
-Status: design baseline; chưa triển khai. Nguồn: `task.md` §§3,6,9,10. Depends on: không. Scope và coding/commands theo [index](README.md), [ARCHITECTURE](../../ARCHITECTURE.md), [CONVENTIONS](../../CONVENTIONS.md).
+Status: T03 đã triển khai identity/permission foundation và automated local tests; customer order/ticket endpoints thuộc T11/T12, Telegram external acceptance thuộc T14. Nguồn: `task.md` §§3,6,9,10. Depends on: không. Scope và coding/commands theo [index](README.md), [ARCHITECTURE](../../ARCHITECTURE.md), [CONVENTIONS](../../CONVENTIONS.md).
 
 ## Contract
 
@@ -26,6 +26,13 @@ Khách hàng chỉ xem entitlement/order/ticket của mình. Staff role không t
 ## Dữ liệu và API nội bộ tối thiểu
 
 `users`, `roles`, `permissions` và quan hệ user-role/role-permission. Telegram ID là BIGINT, duy nhất; username thay đổi không tạo account mới. Contracts tối thiểu: `get_or_create_customer`, `authorize(actor_id, permission, resource_scope)`, `grant_or_revoke_permission` có audit. Tên/signature cuối cùng được chốt cùng slice, không thêm API tổng quát trước nhu cầu.
+
+T03 dùng `IdentityService.get_or_create_customer/get_my_profile/bootstrap_owner`;
+`AccessService.authorize/admin_access/settings/prepare_permission/prepare_support/confirm/cancel`.
+Explicit grants ở `user_permissions` dưới ceilings của `role_permissions`; normal customer không
+có staff role. Mutations gọi `require_permission` trong cùng UoW, confirmation có actor/target/
+version/expiry và audit. Chi tiết schema và giới hạn hiện tại ở [DATABASE](../../DATABASE.md),
+[SECURITY](../../SECURITY.md); không suy ra order/ticket integration hoặc live acceptance từ matrix tests.
 
 Ứng dụng chỉ nhận customer flows nhạy cảm trong private chat; group callback không được dùng làm delivery destination. `/admin` có thể từ chối sớm ở router để UX tốt, nhưng service vẫn phải từ chối direct unauthorized call.
 

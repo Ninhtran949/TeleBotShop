@@ -2,7 +2,7 @@
 
 ## Trạng thái và lựa chọn
 
-Đây là baseline thiết kế được SE/SA chọn theo ủy quyền của Owner. T01/T02 đã triển khai toolchain/package, validated settings, HTTP health, PostgreSQL readiness/UoW và Alembic baseline. Chưa có business flows, Telegram adapter/worker hoặc business tables. Yêu cầu nghiệp vụ gốc ở [`task.md`](../task.md); lý do chọn kiến trúc ở [ADR-0001](adr/0001-modular-monolith.md). Thiết kế chỉ dựng package/file khi một slice cần dùng, không tạo toàn bộ cây trống.
+Đây là baseline thiết kế được SE/SA chọn theo ủy quyền của Owner. T01–T03 đã triển khai toolchain/runtime, HTTP health, PostgreSQL/UoW/migrations và identity/permission/audit. Telegram customer/admin adapters có development polling, chưa có commerce/worker/production webhook. Yêu cầu nghiệp vụ gốc ở [`task.md`](../task.md); lý do chọn kiến trúc ở [ADR-0001](adr/0001-modular-monolith.md). Thiết kế chỉ dựng package/file khi một slice cần dùng, không tạo toàn bộ cây trống.
 
 Chọn **modular monolith**, một codebase/image, PostgreSQL là nguồn dữ liệu bền vững. Production dự kiến có hai process từ cùng image: HTTP ingress và fulfillment worker. Local polling chỉ là adapter development thay thế webhook, không chạy cùng webhook cho cùng bot.
 
@@ -60,11 +60,19 @@ tests/
 
 Hàm/DTO đặt cạnh use case sở hữu; chỉ tách module chung khi có nhu cầu thật. Không tạo sẵn file cho mọi item trong cây. Mapping capability → trách nhiệm nằm trong [spec index](plans/shop/README.md), không sinh microservice cho từng capability.
 
-T02 hiện chỉ có HTTP entrypoint `python -m telebotshop`/`telebotshop`, không dựng worker/dev
-polling placeholder. `bootstrap.py` load settings khi được gọi, tạo engine và inject readiness
-callable/lifespan vào API factory; API không import concrete DB adapter. Lifespan đóng engine,
-UoW dùng context manager của AsyncSession để rollback/close; schema contract và evidence ở
-[DATABASE](DATABASE.md). UoW factory được inject vào use case khi slice đó thật sự có caller.
+HTTP entrypoint `python -m telebotshop`/`telebotshop` (hoặc `telebotshop http`) giữ độc lập.
+T03 thêm `telebotshop polling` cho development/test: `bootstrap.py` wire IdentityService,
+AccessService, per-call UoW factory, customer/admin routers, ingress guard và Bot client.
+Polling kiểm tra schema/Owner rồi từ chối existing webhook, không delete/drop updates.
+Bot client/engine đóng cả khi exception/cancellation; xử lý update tuần tự, chưa có worker.
+HTTP factory vẫn nhận readiness callable/lifespan, không import concrete DB adapter.
+Schema/transaction contract ở [DATABASE](DATABASE.md), controls/limits ở [SECURITY](SECURITY.md).
+
+Domain identity/access/admin DTO là dataclass/enum thuần Python; application services sở
+hữu validation, permission và transaction. Repositories dùng SQLAlchemy Core metadata,
+chỉ trả DTO. Owner/grants/settings/audit/confirmations là schema T03, không tạo commerce
+tables trước T04. Authorization lock giữ tới hết protected transaction; read/menu permission
+check không thay thế quyền hiện tại của mutation.
 
 ## Ma trận import bắt buộc
 

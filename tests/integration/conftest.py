@@ -5,7 +5,9 @@ from uuid import uuid4
 
 import pytest
 import pytest_asyncio
-from sqlalchemy import text
+from alembic import command
+from alembic.config import Config
+from sqlalchemy import Connection, text
 from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
 
 from tests.database import assert_test_database, cleanup_schema, validate_test_database_url
@@ -36,3 +38,16 @@ async def database() -> AsyncIterator[AsyncEngine]:
         )
         stack.push_async_callback(engine.dispose)
         yield engine
+
+
+@pytest_asyncio.fixture
+async def migrated_database(database: AsyncEngine) -> AsyncIterator[AsyncEngine]:
+    async with database.begin() as connection:
+        config = Config("alembic.ini")
+
+        def upgrade(sync_connection: Connection) -> None:
+            config.attributes["connection"] = sync_connection
+            command.upgrade(config, "head")
+
+        await connection.run_sync(upgrade)
+    yield database

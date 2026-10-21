@@ -1,8 +1,19 @@
 # Database và transaction baseline
 
 T02 dùng PostgreSQL **18.6**, SQLAlchemy **2.0.55** Async + asyncpg **0.32.0** và
-Alembic **1.20.0**. Chưa có business tables hoặc repository nghiệp vụ.
-`alembic_version` ghi baseline `0001_runtime`; source migration không tạo users, orders hay kho sớm.
+Alembic **1.20.0**. T03 thêm identity/access/settings và audit repositories bằng SQLAlchemy
+Core tables; không trả ORM/session ra application. Head hiện tại **`0003_access`**;
+`0001_runtime` giữ nguyên, `0002_identity` thêm identity/Owner/audit, `0003_access` thêm
+explicit grants, settings và confirmation. Chưa tạo catalog, orders hoặc kho.
+
+| Tables | Contract |
+| --- | --- |
+| `users` | UUID nội bộ; positive BIGINT Telegram ID unique, optional profile metadata; UTC registration/last seen và access version. Concurrent upsert không đổi UUID/registration. |
+| `roles`, `user_roles` | OWNER/ADMIN/SUPPORT; một staff role/user, partial unique index chỉ một Owner. Customer không tự có staff role. |
+| `permissions`, `role_permissions`, `user_permissions` | Enum permission và role ceilings; ADMIN/SUPPORT cần explicit user grants. Seed Owner permissions không bị bootstrap ghi lại. |
+| `shop_settings` | Singleton `id=1`; persisted Owner UUID, optional support username và version. Không có secrets; Owner UUID vẫn còn khi role bị xóa. |
+| `admin_actions` | UUID confirmation, actor/target, typed action, expected version, expiry, pending/applied/cancelled. FK/check constraints chặn unknown permissions/shape. |
+| `audit_logs` | Actor/action/target/correlation/outcome/UTC time và redacted changes; unique correlation, DB trigger chặn UPDATE/DELETE/TRUNCATE. |
 
 ## Local development và test
 
@@ -56,7 +67,9 @@ uv run --no-sync alembic current
 Migration là thao tác operator riêng, không chạy khi import/startup/request.
 CLI dùng validated settings và NullPool, đóng engine cả khi lỗi.
 Integration tests cấp explicit connection trong schema do test sở hữu.
-Baseline chỉ hỗ trợ online migration; `--sql` và autogenerate chưa cấu hình vì chưa có ORM models.
+Chỉ hỗ trợ online migration; `--sql` chưa hỗ trợ. Metadata đã wire vào Alembic;
+`alembic check` kiểm tra drift, autogenerate vẫn phải review trước khi dùng. PostgreSQL tests
+so sánh metadata/head, upgrade từ T02 và giữ profile/Owner khi đi từ `0002_identity` lên head.
 
 Readiness so sánh revision trong DB với `SCHEMA_HEAD` ở
 `src/telebotshop/infrastructure/database/schema.py`. Architecture test so sánh constant này
@@ -66,16 +79,32 @@ Chưa có production migration, destructive upgrade, backup/restore hoặc relea
 
 ## Unit of work
 
-Application port chỉ có `commit()`; concrete UoW và AsyncSession ở infrastructure.
+Application UoW port có `identity`, `access` repositories và `commit()`;
+concrete UoW và AsyncSession ở infrastructure.
 `unit_of_work(engine)` tạo session/transaction mới cho mỗi lần gọi, không share session
 giữa concurrent tasks. Use case phải gọi `commit()` tường minh. Session close rollback
 mọi phần chưa commit, kể cả exception, cancelled task hoặc deferred constraint failure.
 `autobegin=False` chặn query tự mở transaction khác sau commit.
 
-Chưa có repository để wire ở T02. Khi thêm use case, composition root inject UoW factory;
+Composition root inject UoW factory vào IdentityService/AccessService;
 repository chỉ dùng session trong transaction đó và không commit hoặc trả ORM ra ngoài.
 PostgreSQL tests đã chứng minh hai backend connections độc lập, commit/rollback/cancel,
 commit failure và không có hidden commit.
+
+Owner bootstrap khóa singleton `shop_settings FOR UPDATE`; chỉ lần đầu ghi Owner role,
+persisted owner và audit trong cùng transaction. Các mutation quyền/settings khóa singleton
+exclusive trước khi đọc current permissions. `require_permission(work, ...)` khóa SHARE
+và giữ khóa đến hết transaction của use case để revoke không chen giữa check và mutation.
+Đây là lock bảo thủ cho quy mô ban đầu; thu hẹp khi có contention thực tế, không thay bằng
+cached role. Public `authorize()` là read use case, không cấp quyền cho transaction khác.
+
+Confirmation giữ target access version hoặc settings version, hết hạn sau 10 phút. Confirm
+kiểm tra lại actor/permission/version rồi mutation + audit + mark applied trong một commit.
+Concurrent/replayed confirm chỉ áp dụng một lần; cancel làm token không còn dùng được.
+Lỗi audit ngay khi INSERT hoặc tại deferred commit đều rollback mọi thay đổi.
+Không Telegram/network trong UoW; integration test kiểm tra pool không có checked-out
+connection tại mọi Telegram call của flow identity/admin. Retention của confirmations/audit
+và production DB role separation chưa chốt ở T03; xem [SECURITY](SECURITY.md).
 
 ## Health và shutdown
 
@@ -85,7 +114,8 @@ commit failure và không có hidden commit.
 - Probe đóng connection kể cả timeout. Response không có DSN, SQL error hoặc settings;
   health responses dùng `Cache-Control: no-store`.
 - FastAPI lifespan đóng engine/pool; mỗi UoW đóng session của nó. Uvicorn có graceful
-  shutdown deadline 10 giây. Chưa có Telegram/HTTP outbound client hoặc worker để đóng.
+  shutdown deadline 10 giây. Development polling sở hữu/đóng Bot session và engine trong
+  context/finally, kể cả webhook refusal, API failure hoặc cancellation; chưa có worker.
 
 Sources: [SQLAlchemy async session ownership](https://docs.sqlalchemy.org/en/20/orm/extensions/asyncio.html#using-asyncsession-with-concurrent-tasks),
 [Alembic async integration](https://alembic.sqlalchemy.org/en/latest/cookbook.html#using-asyncio-with-alembic),

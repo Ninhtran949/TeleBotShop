@@ -7,10 +7,11 @@ from sqlalchemy.ext.asyncio import create_async_engine
 from sqlalchemy.pool import NullPool
 
 from telebotshop.infrastructure.config import Settings
+from telebotshop.infrastructure.database.models.identity import metadata
 
 
 def run_migrations(connection: Connection) -> None:
-    context.configure(connection=connection, target_metadata=None)
+    context.configure(connection=connection, target_metadata=metadata, compare_server_default=True)
     with context.begin_transaction():
         context.run_migrations()
 

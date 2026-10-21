@@ -9,12 +9,13 @@ Mục tiêu từ [`task.md`](../task.md): shop Telegram bán tài nguyên số �
 | Harness, sáu upstream skills, kiểm tra integrity | Đã có; nguồn và checksum giữ nguyên. |
 | Rule, architecture, convention, capability specs, ADR, implementation plan | Đã thiết kế thành baseline kỹ thuật theo yêu cầu Owner giao vai trò SE/SA. |
 | T01: toolchain, package, manifest/lock, quality gates | Đã triển khai và kiểm chứng local: CPython 3.12.15, uv/uv_build 0.13.4, Pytest 9.1.1, Ruff 0.17.1; package tối thiểu, AST import checks, wheel/import smoke. |
-| T02: settings/runtime, HTTP health, PostgreSQL/UoW, Alembic, dev/test Compose | Đã triển khai và kiểm chứng local trên PostgreSQL 18.6; schema baseline chỉ có Alembic revision, chưa có business tables. |
-| Business flows, Telegram bot/webhook, CI, production image/deployment | Chưa triển khai; các phần tương ứng trong cây kiến trúc là cấu trúc đích. |
+| T02: settings/runtime, HTTP health, PostgreSQL/UoW, Alembic, dev/test Compose | Đã triển khai và kiểm chứng local trên PostgreSQL 18.6; revision `0001_runtime` giữ nguyên. |
+| T03: identity/Owner, explicit permissions, audit và Telegram admin/settings foundation | Đã triển khai và kiểm chứng local: schema head `0003_access`, `/start`/private profile, `/admin`, Owner grant/revoke/settings confirmation và development polling. Telegram API mock; PostgreSQL thật. |
+| Catalog/inventory/orders/payments, production webhook/worker, CI, production image/deployment | Chưa triển khai; các phần tương ứng trong cây kiến trúc là cấu trúc đích. |
 | BotFather/test bot, live credentials, backup/restore | Chưa cấu hình hoặc kiểm chứng; local PostgreSQL dùng credentials giả tách biệt. |
-| Git | Repository branch `dev`; T01 baseline đã commit (`ea4882f`), workspace sạch khi bắt đầu T02. Chưa commit/push thay đổi T02. |
+| Git | Repository branch `dev`; T01 (`ea4882f`) và T02 (`6f21cec`) đã có commit. T03 chưa commit/push; không thay đổi history hoặc discard work. |
 
-Trạng thái và bằng chứng của từng slice nằm trong [implementation plan](plans/shop/implementation-plan.md). T01/T02 hoàn tất; **T03** là task tiếp theo, còn pending và cần được giao riêng. Không tự chạy toàn roadmap khi chỉ được giao một task.
+Trạng thái và bằng chứng của từng slice nằm trong [implementation plan](plans/shop/implementation-plan.md). T01–T03 hoàn tất; **T04** là task tiếp theo, còn pending và cần được giao riêng. Không tự chạy toàn roadmap khi chỉ được giao một task.
 
 ## Đọc theo nhiệm vụ
 
@@ -28,7 +29,7 @@ Trạng thái và bằng chứng của từng slice nằm trong [implementation 
 
 ## Stack đã chọn và mức triển khai
 
-Python 3.12, aiogram 3.x, FastAPI, PostgreSQL 18, SQLAlchemy 2.0 Async + asyncpg, Alembic, Pydantic Settings, Pytest, Ruff, Docker Compose. `uv` quản lý môi trường/lock; `cryptography` phục vụ mã hóa inventory. Lý do và giới hạn nằm trong ADR-0001 đến ADR-0004. T02 đã pin/cài FastAPI 0.156.4, Pydantic 2.14.1/Settings 2.16.1, SQLAlchemy 2.0.55 Async, asyncpg 0.32.0, Alembic 1.20.0 và Uvicorn 0.54.0; dev tests dùng httpx2 2.15.1/Pytest-asyncio 1.4.0. aiogram và cryptography chỉ thêm ở slice thật sự dùng.
+Python 3.12, aiogram 3.x, FastAPI, PostgreSQL 18, SQLAlchemy 2.0 Async + asyncpg, Alembic, Pydantic Settings, Pytest, Ruff, Docker Compose. `uv` quản lý môi trường/lock; `cryptography` phục vụ mã hóa inventory khi tới T05. Lý do và giới hạn nằm trong ADR-0001 đến ADR-0004. Hiện pin FastAPI 0.156.4, Pydantic 2.13.5/Settings 2.16.1, SQLAlchemy 2.0.55 Async, asyncpg 0.32.0, Alembic 1.20.0, Uvicorn 0.54.0 và aiogram 3.31.0; dev tests dùng httpx2 2.15.1/Pytest-asyncio 1.4.0. T03 điều chỉnh Pydantic từ 2.14.1 xuống 2.13.5 theo constraint `<2.14` của aiogram và kiểm chứng lại T02 contracts.
 
 Python/uv/dev/build versions và lockfile đã pin trong T01; runtime/development packages cập nhật ở T02. Compose pin official PostgreSQL 18.6-bookworm bằng immutable digest; đã chạy với Docker Linux Engine 29.6.2/Compose 5.3.1. Xem [README](../README.md) để bootstrap/start và [DATABASE](DATABASE.md) cho DB/migrations/isolation. Redis chỉ thêm trước khi cần chia sẻ rate limit/FSM giữa nhiều ingress; chưa có React, Mini App, Celery, microservice hoặc plugin bổ sung.
 
@@ -53,6 +54,7 @@ Runtime và migration commands đã tồn tại (export environment trước, th
 ```text
 uv run --no-sync alembic upgrade head
 uv run --no-sync telebotshop
+uv run --no-sync telebotshop polling
 ```
 
 PostgreSQL gate D, sau khi start disposable test service và export `APP_ENV=test`/`TEST_DATABASE_URL` theo README:
@@ -68,7 +70,16 @@ python scripts/verify_harness.py
 python -B -m unittest discover -s tests -p test_harness.py -v
 ```
 
-Unit/contract/architecture suite kiểm tra settings, health transport và source/import behavior. PostgreSQL integration kiểm tra migration, UoW/failure/concurrency, readiness và resource cleanup thật. Chưa chứng minh business capabilities chưa triển khai; chưa có type checker, hosted CI, Telegram test/live hoặc production validation.
+HTTP không cần bot secrets. Polling cần BOT_TOKEN/OWNER_ID trong environment bảo vệ, chỉ
+development/test, từ chối existing webhook; hướng dẫn trong README. Không chạy command
+polling thật từ việc T03 được giao code/test.
+
+T03 verification: **164 unit/contract/architecture**, **40 PostgreSQL integration**, **6 harness**
+pass; lock/sync, lint/format, architecture, build/isolated runtime wheel và dependency audit
+pass. Tests bao gồm current permission/direct calls, private/customer/staff scope, Owner và
+grant/confirmation races, audit/commit rollback, schema drift và SDK/DB redaction/shutdown.
+Chưa có type checker, hosted CI, Telegram test/live hoặc production validation; scope hiện
+có và giới hạn ở [SECURITY](SECURITY.md). Không suy ra order/ticket/refund acceptance từ T03.
 
 ## Điều kiện cần Owner cung cấp trước khi mở bán
 

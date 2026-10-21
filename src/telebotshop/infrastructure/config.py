@@ -1,9 +1,12 @@
+import re
 from typing import Literal
 
 from pydantic import Field, IPvAnyAddress, SecretStr, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from sqlalchemy.engine import make_url
 from sqlalchemy.exc import ArgumentError
+
+from telebotshop.domain.models.identity import validate_telegram_id
 
 
 class Settings(BaseSettings):
@@ -38,4 +41,28 @@ class Settings(BaseSettings):
             "verify-full",
         }:
             raise ValueError("DATABASE_URL query must contain only a supported ssl mode")
+        return value
+
+
+class BotSettings(Settings):
+    app_env: Literal["development", "test"]
+    bot_token: SecretStr = Field(repr=False)
+    owner_id: int = Field(repr=False)
+
+    @field_validator("owner_id", mode="before")
+    @classmethod
+    def validate_owner_id(cls, value: object) -> int:
+        if isinstance(value, str) and re.fullmatch(r"[0-9]{1,16}", value):
+            value = int(value)
+        if type(value) is not int:
+            raise ValueError("OWNER_ID must be a Telegram user ID")
+        validate_telegram_id(value)
+        return value
+
+    @field_validator("bot_token")
+    @classmethod
+    def validate_bot_token(cls, value: SecretStr) -> SecretStr:
+        token = value.get_secret_value()
+        if not re.fullmatch(r"[1-9][0-9]{0,15}:[A-Za-z0-9_-]{20,128}", token):
+            raise ValueError("BOT_TOKEN is invalid")
         return value

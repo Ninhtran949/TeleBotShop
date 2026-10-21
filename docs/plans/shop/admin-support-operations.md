@@ -1,6 +1,6 @@
 # Spec: admin-support-operations
 
-Status: design baseline; chưa triển khai. Nguồn: `task.md` §§6,9,10,11,13. Depends on: identity-access, catalog-inventory, orders-payments, fulfillment.
+Status: T03 triển khai AO-01 foundation cho quyền/settings/audit và admin navigation; phần commerce/support/operations còn theo tasks sau, chưa nghiệm thu toàn AO-01..06. Nguồn: `task.md` §§6,9,10,11,13. Depends on: identity-access, catalog-inventory, orders-payments, fulfillment.
 
 ## Admin và support
 
