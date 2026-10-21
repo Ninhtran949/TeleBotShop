@@ -113,5 +113,6 @@ async def test_staff_menu_shows_only_current_grants_without_mock_dashboard_or_ow
         button.callback_data for row in reply.reply_markup.inline_keyboard for button in row
     }
     assert not callbacks & {"adm:access", "adm:settings"}
+    assert "pc:list:0" in callbacks
     assert "Dashboard" not in reply.text and "0" not in reply.text
     await telegram.bot.session.close()

@@ -2,9 +2,9 @@
 
 T02 dùng PostgreSQL **18.6**, SQLAlchemy **2.0.55** Async + asyncpg **0.32.0** và
 Alembic **1.20.0**. T03 thêm identity/access/settings và audit repositories bằng SQLAlchemy
-Core tables; không trả ORM/session ra application. Head hiện tại **`0003_access`**;
+Core tables; không trả ORM/session ra application. Head hiện tại **`0004_catalog`**;
 `0001_runtime` giữ nguyên, `0002_identity` thêm identity/Owner/audit, `0003_access` thêm
-explicit grants, settings và confirmation. Chưa tạo catalog, orders hoặc kho.
+explicit grants, settings và confirmation. T04 thêm `0004_catalog`; chưa tạo orders hoặc kho.
 
 | Tables | Contract |
 | --- | --- |
@@ -14,6 +14,9 @@ explicit grants, settings và confirmation. Chưa tạo catalog, orders hoặc k
 | `shop_settings` | Singleton `id=1`; persisted Owner UUID, optional support username và version. Không có secrets; Owner UUID vẫn còn khi role bị xóa. |
 | `admin_actions` | UUID confirmation, actor/target, typed action, expected version, expiry, pending/applied/cancelled. FK/check constraints chặn unknown permissions/shape. |
 | `audit_logs` | Actor/action/target/correlation/outcome/UTC time và redacted changes; unique correlation, DB trigger chặn UPDATE/DELETE/TRUNCATE. |
+| `categories` | UUID/code unique, public name, optional parent FK; trigger giữ code/parent immutable và chỉ cho parent là root. |
+| `products` | UUID/SKU unique immutable, type immutable, category FK, positive BIGINT Stars, public name/description/typed JSONB, HIDDEN/ACTIVE, optional public photo ID và version. |
+| `catalog_actions` | Catalog-owned pending intent; actor FK, kind, preallocated target UUID, bounded typed public JSONB, expected version, expiry/status/completed_at. Create target chưa tồn tại nên target không có FK. |
 
 ## Local development và test
 
@@ -106,6 +109,24 @@ Không Telegram/network trong UoW; integration test kiểm tra pool không có c
 connection tại mọi Telegram call của flow identity/admin. Retention của confirmations/audit
 và production DB role separation chưa chốt ở T03; xem [SECURITY](SECURITY.md).
 
+T04 catalog mutations cũng gọi `require_permission` với `catalog.manage` trong chính UoW.
+Catalog action khóa `FOR UPDATE`; product update khóa đúng product row, kiểm tra version
+và dùng CAS `WHERE version = expected_version`. Không khóa category join ngoài nhu cầu.
+SKU/category creation dùng named unique constraints + `ON CONFLICT DO NOTHING`; race
+không overwrite row đã có. Mutation + redacted audit + applied marker commit cùng nhau;
+price audit ghi amount trước/sau và version, không copy mô tả/ảnh/payload.
+
+Public query chọn rõ các cột public, chỉ ACTIVE, limit 6 để trả 5 items + has_more;
+page 0–9999, search 1–80 ký tự literal `icontains(..., autoescape=True)`. Parent-category
+query gồm root và children. Không lấy inventory/delivery payload hoặc cache price/quyền.
+Catalog public metadata có SQL CHECK theo cả năm type; không chấp nhận key, delivery
+file_id/content hay extra fields. Photo ID regex kiểm tra charset, LENGTH kiểm tra 16–512
+riêng vì PostgreSQL regex bounds chỉ hỗ trợ tới 255. T04 không thêm extensions/dependencies.
+
+Migration tests đi từ T03 head lên catalog và giữ pending Owner confirmation/audit hoạt
+động; metadata drift rỗng. `0001_runtime`–`0003_access` không sửa. Không auto-seed runtime;
+demo hợp pháp giả nằm trong test fixtures/README, chưa có actual inventory.
+
 ## Health và shutdown
 
 - `/health/live`: 200 `{"status":"ok"}`, không gọi database.
@@ -121,3 +142,4 @@ Sources: [SQLAlchemy async session ownership](https://docs.sqlalchemy.org/en/20/
 [Alembic async integration](https://alembic.sqlalchemy.org/en/latest/cookbook.html#using-asyncio-with-alembic),
 [official PostgreSQL image/18 volume](https://hub.docker.com/_/postgres),
 [PostgreSQL shared comments](https://www.postgresql.org/docs/18/functions-info.html#FUNCTIONS-INFO-COMMENT-TABLE).
+[PostgreSQL regex bounds](https://www.postgresql.org/docs/18/functions-matching.html#POSIX-QUANTIFIERS-TABLE).

@@ -11,11 +11,12 @@ Mục tiêu từ [`task.md`](../task.md): shop Telegram bán tài nguyên số �
 | T01: toolchain, package, manifest/lock, quality gates | Đã triển khai và kiểm chứng local: CPython 3.12.15, uv/uv_build 0.13.4, Pytest 9.1.1, Ruff 0.17.1; package tối thiểu, AST import checks, wheel/import smoke. |
 | T02: settings/runtime, HTTP health, PostgreSQL/UoW, Alembic, dev/test Compose | Đã triển khai và kiểm chứng local trên PostgreSQL 18.6; revision `0001_runtime` giữ nguyên. |
 | T03: identity/Owner, explicit permissions, audit và Telegram admin/settings foundation | Đã triển khai và kiểm chứng local: schema head `0003_access`, `/start`/private profile, `/admin`, Owner grant/revoke/settings confirmation và development polling. Telegram API mock; PostgreSQL thật. |
-| Catalog/inventory/orders/payments, production webhook/worker, CI, production image/deployment | Chưa triển khai; các phần tương ứng trong cây kiến trúc là cấu trúc đích. |
+| T04: catalog, public metadata năm loại và admin product maintenance | Đã triển khai và kiểm chứng local: schema head `0004_catalog`, category/subcategory, browse/search/pagination, staff tạo/sửa sản phẩm/giá/trạng thái/ảnh với confirmation, current permission và audit. Chỉ metadata công khai; chưa nhận đơn. |
+| Inventory/orders/payments, production webhook/worker, CI, production image/deployment | Chưa triển khai; các phần tương ứng trong cây kiến trúc là cấu trúc đích. |
 | BotFather/test bot, live credentials, backup/restore | Chưa cấu hình hoặc kiểm chứng; local PostgreSQL dùng credentials giả tách biệt. |
-| Git | Repository branch `dev`; T01 (`ea4882f`) và T02 (`6f21cec`) đã có commit. T03 chưa commit/push; không thay đổi history hoặc discard work. |
+| Git | Repository branch `dev`; T01 (`ea4882f`) và T02 (`6f21cec`) đã có commit. T03 đang staged; T04 chưa stage/commit/push. Giữ nguyên index/history và work đã có. |
 
-Trạng thái và bằng chứng của từng slice nằm trong [implementation plan](plans/shop/implementation-plan.md). T01–T03 hoàn tất; **T04** là task tiếp theo, còn pending và cần được giao riêng. Không tự chạy toàn roadmap khi chỉ được giao một task.
+Trạng thái và bằng chứng của từng slice nằm trong [implementation plan](plans/shop/implementation-plan.md). T01–T04 hoàn tất; **T05** là task tiếp theo, còn pending và cần được giao riêng. Không tự chạy toàn roadmap khi chỉ được giao một task.
 
 ## Đọc theo nhiệm vụ
 
@@ -74,12 +75,14 @@ HTTP không cần bot secrets. Polling cần BOT_TOKEN/OWNER_ID trong environmen
 development/test, từ chối existing webhook; hướng dẫn trong README. Không chạy command
 polling thật từ việc T03 được giao code/test.
 
-T03 verification: **164 unit/contract/architecture**, **40 PostgreSQL integration**, **6 harness**
+T04 verification: **211 unit/contract/architecture**, **60 PostgreSQL integration**, **6 harness**
 pass; lock/sync, lint/format, architecture, build/isolated runtime wheel và dependency audit
-pass. Tests bao gồm current permission/direct calls, private/customer/staff scope, Owner và
-grant/confirmation races, audit/commit rollback, schema drift và SDK/DB redaction/shutdown.
+pass. Tests bao gồm T03 regressions, catalog năm loại, hidden/public scope, navigation và
+tampered callbacks, current permission, concurrent price/confirmation, audit/commit rollback,
+T03→T04 migration preservation, schema drift và mọi Telegram send ngoài DB transaction.
 Chưa có type checker, hosted CI, Telegram test/live hoặc production validation; scope hiện
-có và giới hạn ở [SECURITY](SECURITY.md). Không suy ra order/ticket/refund acceptance từ T03.
+có và giới hạn ở [SECURITY](SECURITY.md). Không suy ra inventory/checkout/delivery acceptance
+từ catalog hoặc từ passing mocked Telegram tests.
 
 ## Điều kiện cần Owner cung cấp trước khi mở bán
 

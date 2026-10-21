@@ -4,9 +4,9 @@ Shop Telegram bán tài nguyên số có quyền phân phối, thanh toán Stars
 Trạng thái và task đang được thực hiện: [PROJECT](docs/PROJECT.md),
 [implementation plan](docs/plans/shop/implementation-plan.md).
 
-T01–T03 đã có toolchain/runtime, PostgreSQL/UoW/migrations, identity/Owner bootstrap,
-explicit staff permissions, transactional audit và Telegram admin/settings foundation.
-Chưa có catalog, kho, order/payment hoặc production webhook; tests dùng Telegram API mock.
+T01–T04 đã có toolchain/runtime, identity/permissions/audit, catalog PostgreSQL với năm loại
+metadata công khai, duyệt/tìm kiếm/phân trang và admin sửa sản phẩm/giá/hiện–ẩn có xác nhận.
+Chưa có kho/checkout/order/payment hoặc production webhook; Telegram API trong tests là mock.
 
 ## Môi trường development
 
@@ -85,10 +85,10 @@ Thiếu/sai settings hoặc Owner mismatch thoát 2; lỗi DB/Telegram runtime t
 
 Trong private chat:
 
-- `/start` tạo/cập nhật metadata trên cùng Telegram ID; Tài khoản/Quay lại/Trang chủ/Hủy
-  hoạt động. Chỉ render navigation của capability đã có.
-- `/admin` kiểm tra quyền hiện tại. Owner có Quản lý quyền và Cài đặt; staff chỉ thấy
-  danh sách quyền được cấp, chưa có nút catalog/orders/refunds của các task sau.
+- `/start` tạo/cập nhật metadata trên cùng Telegram ID; có Cửa hàng, Tìm kiếm, Tài khoản,
+  Quay lại/Trang chủ/Hủy. `/shop` mở danh mục; `/search <từ khóa>` tìm tên/mô tả/SKU.
+- `/admin` kiểm tra quyền hiện tại. Owner có Quản lý quyền, Cài đặt và Sản phẩm; staff có
+  `catalog.manage` thấy Sản phẩm. Chưa có orders/refunds controls của các task sau.
 - Owner dùng `/grant <Telegram_ID> <ADMIN|SUPPORT> <permission>` hoặc `/revoke` với cùng
   ba tham số, sau đó bấm **Xác nhận** trong 10 phút. Người nhận phải `/start` trước;
   lấy ID của chính mình từ Tài khoản. Mỗi lần chỉ đổi một permission.
@@ -102,6 +102,64 @@ Owner đầu tiên được lưu bền vững; restart không sửa quyền đã
 Khi mismatch, khôi phục đúng cấu hình và kiểm tra quy trình ownership riêng; T03 không có
 owner-transfer command. Confirmation ràng buộc actor/target/version; replay không áp dụng lại.
 Controls và giới hạn: [SECURITY](docs/SECURITY.md). Chưa thực hiện Telegram test/live ở T03.
+
+## Catalog và quản lý sản phẩm (T04)
+
+Người có `catalog.manage` mở Sản phẩm trong `/admin` hoặc `/products`. Dữ liệu đọc từ DB,
+không auto-seed và không có dashboard counts giả. Danh mục gồm root và một cấp con;
+code/SKU phân biệt hoa thường, 1–32 ký tự ASCII, bắt đầu bằng chữ/số và chỉ gồm chữ/số/`_`/`.`/`-`, không đổi sau tạo.
+Sản phẩm mới mặc định **ẩn**; sửa cùng SKU giữ UUID/type, ảnh và trạng thái hiện tại.
+Giá là integer Stars dương trong miền BIGINT; không chấp nhận float/bool hoặc số âm.
+
+Ví dụ dữ liệu công khai **giả** để operator tự nhập trong private chat:
+
+```text
+/category demo | Danh mục thử nghiệm
+/category demo-child | Danh mục con thử nghiệm | demo
+```
+
+Mỗi lệnh tạo một yêu cầu riêng, cần bấm Xác nhận trước khi dùng danh mục đó. Form sản phẩm
+gồm header và các dòng tên/mô tả/thông tin theo loại:
+
+```text
+/product DEMO-KEY | demo-child | UNIQUE_KEY | 100
+Sản phẩm minh họa
+Mô tả công khai giả, không có tài nguyên giao hàng.
+```
+
+Sau dòng mô tả, UNIQUE_KEY không thêm dữ liệu; các loại khác thêm đúng một dòng:
+
+| TYPE | Dòng cuối công khai |
+| --- | --- |
+| `LICENSE` | Hướng dẫn kích hoạt, tối đa 500 ký tự; không nhập license key. |
+| `DIGITAL_FILE` | `demo.pdf \| application/pdf`; chỉ tên/MIME, không file_id dùng để giao hàng. |
+| `REUSABLE_RESOURCE` | `TEXT` hoặc `DOCUMENT`; không nội dung/reference bí mật. |
+| `MANUAL_FULFILLMENT` | Thông báo xử lý thủ công cho khách, tối đa 500 ký tự. |
+
+Giới hạn: tên 80, mô tả 1200 ký tự (có thể trống); form tối đa 2200 ký tự. Để sửa, gửi lại
+form đầy đủ cùng SKU/type. Các thao tác dưới đây cũng cần confirmation trong 10 phút:
+
+```text
+/price DEMO-KEY 150
+/sale DEMO-KEY active
+/sale DEMO-KEY hidden
+/productimage DEMO-KEY clear
+```
+
+Đặt ảnh bằng cách gửi **photo** với caption `/productimage DEMO-KEY`; chỉ lưu Telegram
+photo file_id công khai từ Update, không nhận URL/local path. Ảnh minh họa không phải
+DIGITAL_FILE delivery reference. Hủy confirmation không áp dụng thay đổi; request cũ sau
+khi sản phẩm đổi version cần tạo lại. Callback cũ luôn đọc lại giá/trạng thái hiện tại.
+
+Khách chỉ xem active products; search substring literal không phân biệt hoa thường,
+1–80 ký tự, `%`/`_` được hiểu là ký tự thường. Trang có 5 items, page 0–9999. Root category
+filter gồm cả sản phẩm ở danh mục con. Navigation context actor-bound, tối đa 4096 views,
+hết hạn logic sau 10 phút hoặc mất khi restart/eviction; mở lại `/shop` nếu hết hạn.
+
+T04 chỉ có catalog và public metadata. Không lưu delivery key/file_id/content, không tự
+fetch URL, không hiển thị số stock giả hoặc nhận đơn; kho/payload/checkout thuộc T05/T06/T10.
+Ảnh/catalog thông báo trạng thái thật hiện có, chưa là Telegram external acceptance.
+`APP_ENV=test` không tự đổi Bot API sang Stars test server; setup chính thức thuộc T14.
 
 ## PostgreSQL integration tests
 

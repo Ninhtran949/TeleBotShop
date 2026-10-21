@@ -12,3 +12,7 @@ class OwnerConfigurationError(Exception):
 
 class InvalidAction(Exception):
     pass
+
+
+class CatalogNotFound(Exception):
+    pass

@@ -9,6 +9,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncEngine
 
 from telebotshop.application.services.access import AccessService
+from telebotshop.application.services.catalog import CatalogService
 from telebotshop.application.services.identity import IdentityService
 from telebotshop.bootstrap import create_dispatcher
 from telebotshop.domain.models.access import Permission
@@ -37,7 +38,7 @@ async def test_start_admin_confirm_revoke_and_settings_use_real_db_outside_teleg
     monkeypatch.setattr(
         telegram.bot.session, "make_request", AsyncMock(side_effect=assert_closed_uow)
     )
-    dispatcher = create_dispatcher(identity, access)
+    dispatcher = create_dispatcher(identity, access, CatalogService(factory))
     await dispatcher.feed_update(telegram.bot, message_update("/start"))
     await dispatcher.feed_update(telegram.bot, message_update("/admin"))
     assert "không có quyền" in telegram.calls[-1].text

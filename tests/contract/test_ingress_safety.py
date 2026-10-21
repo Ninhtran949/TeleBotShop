@@ -5,6 +5,7 @@ import pytest
 from sqlalchemy.exc import SQLAlchemyError
 
 from telebotshop.application.services.access import AccessService
+from telebotshop.application.services.catalog import CatalogService
 from telebotshop.application.services.identity import IdentityService
 from telebotshop.bootstrap import create_dispatcher
 from telebotshop.infrastructure.telegram.guard import IngressGuard
@@ -18,7 +19,9 @@ async def test_rate_limit_blocks_before_use_case_and_bounds_memory(
 ) -> None:
     identity = AsyncMock(spec=IdentityService)
     telegram = TelegramRecorder(monkeypatch)
-    dispatcher = create_dispatcher(identity, AsyncMock(spec=AccessService))
+    dispatcher = create_dispatcher(
+        identity, AsyncMock(spec=AccessService), AsyncMock(spec=CatalogService)
+    )
     for _ in range(10):
         await dispatcher.feed_update(telegram.bot, message_update("/start"))
     assert identity.get_or_create_customer.await_count == 8
@@ -39,7 +42,9 @@ async def test_database_errors_do_not_expose_secret_profile_or_report_success(
     identity = AsyncMock(spec=IdentityService)
     identity.get_or_create_customer.side_effect = SQLAlchemyError("fake_secret_profile_payload")
     telegram = TelegramRecorder(monkeypatch)
-    dispatcher = create_dispatcher(identity, AsyncMock(spec=AccessService))
+    dispatcher = create_dispatcher(
+        identity, AsyncMock(spec=AccessService), AsyncMock(spec=CatalogService)
+    )
     await dispatcher.feed_update(telegram.bot, message_update("/start"))
     assert "fake_secret_profile_payload" not in caplog.text
     assert "telegram_database_failure" in caplog.text
@@ -56,7 +61,7 @@ async def test_unknown_callback_does_not_mutate_and_has_safe_navigation_hint(
 ) -> None:
     identity, access = AsyncMock(spec=IdentityService), AsyncMock(spec=AccessService)
     telegram = TelegramRecorder(monkeypatch)
-    await create_dispatcher(identity, access).feed_update(
+    await create_dispatcher(identity, access, AsyncMock(spec=CatalogService)).feed_update(
         telegram.bot, callback_update("forged:owner:101")
     )
     assert not identity.get_my_profile.called and not access.confirm.called

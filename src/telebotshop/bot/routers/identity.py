@@ -9,6 +9,10 @@ from telebotshop.domain.models.identity import CustomerIdentity
 def home_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
+            [
+                InlineKeyboardButton(text="🛍️ Cửa hàng", callback_data="shop:root"),
+                InlineKeyboardButton(text="🔎 Tìm kiếm", callback_data="shop:searchhelp"),
+            ],
             [InlineKeyboardButton(text="👤 Tài khoản", callback_data="profile")],
             [
                 InlineKeyboardButton(text="Trang chủ", callback_data="home"),

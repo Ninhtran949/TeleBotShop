@@ -8,7 +8,7 @@ from aiogram.exceptions import TelegramAPIError
 from aiogram.types import CallbackQuery, Message, TelegramObject
 from sqlalchemy.exc import SQLAlchemyError
 
-from telebotshop.domain.errors import AccessDenied, InvalidAction, InvalidInput
+from telebotshop.domain.errors import AccessDenied, CatalogNotFound, InvalidAction, InvalidInput
 
 logger = logging.getLogger(__name__)
 
@@ -66,6 +66,8 @@ class IngressGuard(BaseMiddleware):
                 text = "Bạn không có quyền thực hiện thao tác này."
             except InvalidInput:
                 text = "Dữ liệu không hợp lệ. Vui lòng kiểm tra hướng dẫn."
+            except CatalogNotFound:
+                text = "Sản phẩm hoặc danh mục không còn hiển thị. Vui lòng mở lại /shop."
             except InvalidAction:
                 text = "Thao tác không còn hợp lệ. Vui lòng mở lại từ /admin."
             except SQLAlchemyError:

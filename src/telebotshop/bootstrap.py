@@ -14,10 +14,13 @@ from pydantic import ValidationError
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import create_async_engine
 
+from telebotshop.admin.catalog import create_catalog_admin_router
 from telebotshop.admin.identity import create_admin_router
 from telebotshop.api.health import create_api
 from telebotshop.application.services.access import AccessService
+from telebotshop.application.services.catalog import CatalogService
 from telebotshop.application.services.identity import IdentityService
+from telebotshop.bot.routers.catalog import create_catalog_router
 from telebotshop.bot.routers.identity import create_customer_router
 from telebotshop.domain.errors import OwnerConfigurationError
 from telebotshop.infrastructure.config import BotSettings, Settings
@@ -50,13 +53,19 @@ class PollingStartupError(Exception):
     pass
 
 
-def create_dispatcher(identity: IdentityService, access: AccessService) -> Dispatcher:
+def create_dispatcher(
+    identity: IdentityService,
+    access: AccessService,
+    catalog: CatalogService,
+) -> Dispatcher:
     dispatcher = Dispatcher(disable_fsm=True)
     guard = IngressGuard()
     dispatcher.message.outer_middleware(guard)
     dispatcher.callback_query.outer_middleware(guard)
     dispatcher.include_router(create_customer_router(identity))
+    dispatcher.include_router(create_catalog_router(catalog))
     dispatcher.include_router(create_admin_router(access))
+    dispatcher.include_router(create_catalog_admin_router(catalog, access))
     fallback = Router(name="unknown_callback")
 
     @fallback.callback_query()
@@ -84,7 +93,7 @@ async def run_polling(settings: BotSettings) -> None:
         async with Bot(settings.bot_token.get_secret_value()) as bot:
             if (await bot.get_webhook_info()).url:
                 raise PollingStartupError("Webhook is configured; polling refused")
-            await create_dispatcher(identity, access).start_polling(
+            await create_dispatcher(identity, access, CatalogService(factory)).start_polling(
                 bot,
                 allowed_updates=["message", "callback_query"],
                 handle_as_tasks=False,

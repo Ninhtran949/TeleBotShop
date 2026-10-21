@@ -1,6 +1,6 @@
-# Security controls — T03
+# Security controls — T03/T04
 
-Phạm vi hiện có: identity, permission, audit và development polling. Đây là controls đã
+Phạm vi hiện có: identity, permission, audit, public catalog/admin và development polling. Đây là controls đã
 triển khai/automated-test, chưa là production hoặc toàn bộ shop security acceptance.
 Payments, inventory encryption, orders/tickets, webhook và release có gate riêng trong
 [implementation plan](plans/shop/implementation-plan.md).
@@ -17,10 +17,23 @@ Payments, inventory encryption, orders/tickets, webhook và release có gate ri�
 | Settings → Telegram | Chỉ support username nullable, regex ASCII/length và Owner confirmation; không có token/DSN/keys/owner-transfer setters hoặc views. | Settings validation, permission, stale/replay và redacted audit tests. |
 | Input → resources | Một ingress; 8 message/callback actions trong fixed window 10 giây/user, tối đa 4096 active counters; đầy capacity từ chối identity mới cho tới expiry. | Rate-limit/capacity tests, guard chạy trước handler/use case. |
 | SDK/DB error → user/log | SecretStr/repr-hidden config, repr-hidden profile DTO, fixed safe domain errors và transport messages; log fixed error codes, SDK log filter xóa args/tracebacks. | Malformed input, CLI errors, DB/SDK secret/PII redaction tests. |
+| Catalog input → persistence | Five typed public schemas, positive integer Stars, immutable SKU/type, category FK/depth/identity, hidden-by-default products; no delivery fields. | Unit/wrong-type tests và PostgreSQL constraints, duplicate-create races, metadata round-trip. |
+| Staff → catalog mutation | Current `catalog.manage` ở handler và use case; catalog-owned actor/version/expiry-bound confirmations, row locks + CAS, audit atomic. | Revoked/cross-actor/stale/cancel/replay/concurrent price, immediate/deferred audit failure tests. |
+| Public lookup/search → catalog | Chỉ ACTIVE trong list/search/detail; bounded pagination/literal escaped search; current price/state lấy DB. No client-supplied price/role trong confirm. | Hidden/stale callbacks, search injection/wildcard và real DB dispatcher flow. |
+| Catalog → Telegram | Plain text, disabled link previews, ảnh chỉ là validated public Telegram photo reference; callback ack trước optional photo. | HTML/photo/transport-failure contracts và pool assertions ở từng send/edit/ack. |
+| Navigation → resource use | Instance-local, actor-bound opaque view token, 4096-entry cap/10-minute logical expiry; chỉ giữ browse parameters, không giữ products/roles/stock. | Expiry/cross-user/capacity tests; expiry/restart yêu cầu mở lại `/shop`. |
 
 `authorize()` là read use case cho handler/menu. Protected mutations tiếp theo phải gọi
 `require_permission(work, actor_id, permission, server_loaded_scope)` trong chính UoW của
 mutation; không dùng kết quả `authorize()` cũ để bỏ qua current permission check.
+
+T04 không nhận private inventory/delivery payload trong product metadata. Mọi text trong
+form là công khai; staff không được nhập secret vào description/instructions. Parser chỉ
+cho fields của từng type, SQL CHECK chặn extra/missing/wrong-type fields; điều này không
+tự xác định một đoạn text tự do có bí mật do người vận hành nhập nhầm hay không.
+Photos chỉ dùng reference từ photo Update hoặc clear; không fetch arbitrary URLs/paths.
+Catalog ACTIVE là visibility, không tự chứng minh đủ stock/payload để checkout. T04 chưa
+có checkout/invoice hoặc fulfillment, không invent stock numbers hoặc nhận thanh toán.
 
 Owner dùng `/grant`/`/revoke` sau khi staff đã `/start`. Role ceiling không tự cấp quyền.
 Đổi ADMIN/SUPPORT phải thu hồi hết quyền cũ, rồi grant dưới role mới. `payments.refund`

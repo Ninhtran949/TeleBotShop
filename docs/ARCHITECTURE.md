@@ -2,7 +2,7 @@
 
 ## Trạng thái và lựa chọn
 
-Đây là baseline thiết kế được SE/SA chọn theo ủy quyền của Owner. T01–T03 đã triển khai toolchain/runtime, HTTP health, PostgreSQL/UoW/migrations và identity/permission/audit. Telegram customer/admin adapters có development polling, chưa có commerce/worker/production webhook. Yêu cầu nghiệp vụ gốc ở [`task.md`](../task.md); lý do chọn kiến trúc ở [ADR-0001](adr/0001-modular-monolith.md). Thiết kế chỉ dựng package/file khi một slice cần dùng, không tạo toàn bộ cây trống.
+Đây là baseline thiết kế được SE/SA chọn theo ủy quyền của Owner. T01–T04 đã triển khai toolchain/runtime, HTTP health, PostgreSQL/UoW/migrations, identity/permission/audit và public catalog/admin product maintenance. Telegram customer/admin adapters có development polling, chưa có inventory/checkout/worker/production webhook. Yêu cầu nghiệp vụ gốc ở [`task.md`](../task.md); lý do chọn kiến trúc ở [ADR-0001](adr/0001-modular-monolith.md). Thiết kế chỉ dựng package/file khi một slice cần dùng, không tạo toàn bộ cây trống.
 
 Chọn **modular monolith**, một codebase/image, PostgreSQL là nguồn dữ liệu bền vững. Production dự kiến có hai process từ cùng image: HTTP ingress và fulfillment worker. Local polling chỉ là adapter development thay thế webhook, không chạy cùng webhook cho cùng bot.
 
@@ -73,6 +73,14 @@ hữu validation, permission và transaction. Repositories dùng SQLAlchemy Core
 chỉ trả DTO. Owner/grants/settings/audit/confirmations là schema T03, không tạo commerce
 tables trước T04. Authorization lock giữ tới hết protected transaction; read/menu permission
 check không thay thế quyền hiện tại của mutation.
+
+T04 thêm CatalogService và catalog port/repository/Core tables; category/product/price/sale/
+photo mutations dùng catalog-owned durable confirmation cùng audit table hiện có. Product
+row lock + version CAS bảo vệ edits; cả handler và use case kiểm tra current `catalog.manage`.
+Customer/admin catalog routers chỉ gọi services. Customer navigation store giữ bounded
+actor-bound browse parameters trong instance router, không giữ products/roles/price/stock;
+restart/expiry mở lại `/shop`. Public models chỉ có typed public metadata/photo, không có
+inventory hoặc delivery payload. Không dựng inventory/order/fulfillment tables sớm.
 
 ## Ma trận import bắt buộc
 

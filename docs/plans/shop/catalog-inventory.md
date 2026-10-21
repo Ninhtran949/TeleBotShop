@@ -1,6 +1,6 @@
 # Spec: catalog-inventory
 
-Status: design baseline; chưa triển khai. Nguồn: `task.md` §§3,4,8,10. Depends on: [identity-access](identity-access.md).
+Status: T04 triển khai public catalog, typed public metadata và protected admin maintenance; inventory/payload/checkout/fulfillment tiếp tục theo T05/T06/T10. Chưa nghiệm thu toàn CI-01..06 hoặc live Telegram. Nguồn: `task.md` §§3,4,8,10. Depends on: [identity-access](identity-access.md).
 
 ## Catalog và product contracts
 
@@ -17,6 +17,21 @@ SKU identity phải ổn định, unique; đổi tên hiển thị không đổi
 | `MANUAL_FULFILLMENT` | Hướng dẫn/metadata công việc của staff, không giả key | Admin bật availability; khách thấy rõ cần xử lý thủ công trước khi thanh toán. |
 
 Không dùng một chuỗi text cho tất cả product types. Dùng typed payload/validator và dispatch đơn giản theo enum; không tạo strategy/factory framework. Digital file/reusable/manual không hiển thị một số tồn kho giả; quota hữu hạn cho chúng chỉ thêm khi có requirement cụ thể.
+
+T04 public schemas riêng: UNIQUE_KEY `{}`; LICENSE `instructions`; DIGITAL_FILE
+`file_name`/`mime_type`; REUSABLE_RESOURCE `format=TEXT|DOCUMENT`; MANUAL_FULFILLMENT
+`customer_notice`. Đây là metadata công khai, không phải delivery payload trong bảng trên.
+Typed secret payload/validation/encryption được thêm ở task sở hữu, không lưu plaintext
+key/file_id/content sớm trong products. Photo reference chỉ dành cho ảnh minh họa công khai.
+
+Contract hiện tại: root/subcategory hai cấp, immutable case-sensitive code/SKU/type;
+new product hidden, Owner-delegated `catalog.manage` + confirmation/audit cho writes.
+CatalogService cung cấp public categories/products/product và protected admin/prepare/
+confirm/cancel use cases. Pagination 5 items/page (0–9999), search literal 1–80 ký tự;
+private router giữ actor-bound bounded navigation parameters, không cache business data.
+Chưa có inventory availability/order API nên không đưa stock giả hoặc nút mua vào T04.
+Chi tiết command/schema/limits tại [README](../../../README.md), [DATABASE](../../DATABASE.md)
+và [SECURITY](../../SECURITY.md); CI-01 stock/order gating vẫn thuộc T05/T06.
 
 ## Inventory và reservation
 

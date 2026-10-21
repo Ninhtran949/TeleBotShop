@@ -78,3 +78,19 @@ def callback_update(
             "from": {"id": 123456, "is_bot": True, "first_name": "Bot"},
         }
     return Update.model_validate({"update_id": 2, "callback_query": payload})
+
+
+def photo_update(caption: str, *, actor: int = 9001) -> Update:
+    payload = message_update(caption, actor=actor).model_dump(by_alias=True, exclude_none=True)
+    message = payload["message"]
+    message["caption"] = message.pop("text")
+    message["caption_entities"] = message.pop("entities")
+    message["photo"] = [
+        {
+            "file_id": "AgACAg_FAKE_PUBLIC_PHOTO_ID_123456789",
+            "file_unique_id": "fake_public_photo",
+            "width": 200,
+            "height": 200,
+        }
+    ]
+    return Update.model_validate(payload)

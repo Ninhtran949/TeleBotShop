@@ -3,12 +3,14 @@ from contextlib import AbstractAsyncContextManager
 from typing import Protocol
 
 from telebotshop.application.ports.access import AccessRepository
+from telebotshop.application.ports.catalog import CatalogRepository
 from telebotshop.application.ports.identity import IdentityRepository
 
 
 class UnitOfWork(Protocol):
     identity: IdentityRepository
     access: AccessRepository
+    catalog: CatalogRepository
 
     async def commit(self) -> None: ...
 
