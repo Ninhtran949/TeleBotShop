@@ -103,6 +103,16 @@ fulfillments = sa.Table(
     sa.Column("destination_telegram_id", sa.BigInteger, nullable=False),
     sa.Column("product_type", sa.String(32), nullable=False),
     sa.Column("state", sa.String(16), nullable=False, server_default="READY"),
+    sa.Column("active_attempt_id", sa.Uuid),
+    sa.Column(
+        "due_at",
+        sa.DateTime(timezone=True),
+        nullable=False,
+        server_default=sa.func.clock_timestamp(),
+    ),
+    sa.Column("send_count", sa.Integer, nullable=False, server_default="0"),
+    sa.Column("hold", sa.Boolean, nullable=False, server_default=sa.false()),
+    sa.Column("attention_code", sa.String(32)),
     sa.Column(
         "created_at",
         sa.DateTime(timezone=True),
@@ -115,7 +125,35 @@ fulfillments = sa.Table(
         ["order_items.id", "order_items.inventory_unit_id"],
         name="fk_fulfillments_item_unit",
     ),
-    sa.CheckConstraint("state = 'READY'", name="ck_fulfillments_state"),
+    sa.ForeignKeyConstraint(
+        ["active_attempt_id"],
+        ["delivery_attempts.id"],
+        name="fk_fulfillments_attempt",
+        use_alter=True,
+    ),
+    sa.CheckConstraint(
+        "state IN ('READY', 'RETRY_WAIT', 'CLAIMED', 'SENDING', 'SENT', 'UNCERTAIN', 'FAILED')",
+        name="ck_fulfillments_state",
+    ),
+    sa.CheckConstraint("send_count BETWEEN 0 AND 5", name="ck_fulfillments_send_count"),
+    sa.CheckConstraint(
+        "(state = 'READY') = (active_attempt_id IS NULL)", name="ck_fulfillments_active"
+    ),
+    sa.CheckConstraint(
+        "(state IN ('FAILED', 'UNCERTAIN') AND attention_code IS NOT NULL AND attention_code IN "
+        "('REJECTED', 'NETWORK', 'LEASE_EXPIRED', 'INVALID_ENTITLEMENT', "
+        "'CRYPTO', 'RETRY_EXHAUSTED')) "
+        "OR (state NOT IN ('FAILED', 'UNCERTAIN') AND attention_code IS NULL)",
+        name="ck_fulfillments_attention",
+    ),
     sa.CheckConstraint("product_type IN ('UNIQUE_KEY', 'LICENSE')", name="ck_fulfillments_type"),
     sa.CheckConstraint("destination_telegram_id > 0", name="ck_fulfillments_destination"),
 )
+sa.Index(
+    "ix_fulfillments_due",
+    fulfillments.c.due_at,
+    fulfillments.c.id,
+    postgresql_where=sa.text("state IN ('READY', 'RETRY_WAIT') AND NOT hold"),
+)
+sa.Index("ix_fulfillments_order", fulfillments.c.order_id)
+sa.Index("ix_fulfillments_attempt", fulfillments.c.active_attempt_id)

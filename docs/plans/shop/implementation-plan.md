@@ -1,6 +1,6 @@
 # Implementation plan và task ledger
 
-Status: **T01–T08 hoàn tất; T09–T18 pending**. Owner giao T08 ngày 2026-10-21; HEAD hiện tại `069fe52` (T07). Index trống giữ nguyên; không stage/commit/push hoặc tự mở rộng sang T09.
+Status: **T01–T09 hoàn tất; T10–T18 pending**. Owner giao T09 qua continue; hoàn tất local 2026-10-22. HEAD `19e7b53` (T08); index trống giữ nguyên, không stage/commit/push hoặc tự mở rộng T10.
 
 ## Cách nhận và bàn giao task
 
@@ -521,7 +521,99 @@ Check scope: **H** = hai harness commands trong PROJECT. **C** = applicable lock
   production role separation/image/deploy hoặc key/DB restore. Không gọi mocks là live gates.
   **T08 hoàn tất; dừng trước T09 pending, cần được giao riêng.**
 
-- [ ] **T09 — Key/license worker và recovery.** Depends: T08. Spec: FD-01..03,06; CI-05. Scope: work claim/lease/CAS, delivery attempts, unique-key/license sending, retry/uncertain/alerts. Acceptance: một active sender, stale token bị chặn, crash sau send không cấp key mới và không auto-send uncertain. Verify: C + D, two-worker races và fault injection trước/sau từng durable/send boundary; focused security review.
+- [x] **T09 — Key/license worker và recovery.** Depends: T08. Spec: FD-01..03,06; CI-05. Scope: work claim/lease/CAS, delivery attempts, unique-key/license sending, retry/uncertain/alerts. Acceptance: một active sender, stale token bị chặn, crash sau send không cấp key mới và không auto-send uncertain. Verify: C + D, two-worker races và fault injection trước/sau từng durable/send boundary; focused security review.
+
+  - [x] **T09.a — Durable claim/lease/recovery.** Migration 0009_fulfillment mở READY intent thành work ledger; attempt UUID đồng thời là fencing token, append-only sanitized result observations, permanent allocation giữ nguyên. Claim work-only SKIP LOCKED commit riêng; prepare/complete/recover lock order→work. CLAIMED expired requeue; SENDING expired UNCERTAIN, no automatic resend.
+  - [x] **T09.b — Authorized finite delivery.** Application kiểm tra primary payment/order/buyer/destination/exact allocated unit/type/hold + current token/lease trước đọc encrypted envelope/decrypt. Commit SENDING trước API; SENT/known rejection/rate-limit retry/UNCERTAIN lưu theo token; late results giữ observation, không overwrite newer state. Bounded send count/backoff, crypto/known failure/uncertain tạo durable attention/audit và redacted operational alerts; không allocate mới.
+  - [x] **T09.c — Adapter/runtime.** UNIQUE_KEY/LICENSE plain-text send tới private buyer, no previews/raw payload logs; bounded timeout và deadline. Worker command với validated policy, startup recovery, per-call UoW, cancellation/shutdown closes clients/engine. Chưa chạy Telegram thật; refund hold là persisted pre-send boundary cho T13, không thêm refund/reconcile UI. Public Buy/navigation tích hợp trong core UI T14, không mở flow năm types khi T10 còn thiếu.
+  - [x] **T09.d — Evidence/review/docs.** PostgreSQL two-worker/lease/refund-hold races, stale token/results, failure before/after durable/send boundaries, ciphertext/approval/payment preservation + guarded downgrade; Telegram mocked outside DB. C+D+H/wheel/audit, mutation review, protected source/index checks; chỉ đóng T09 khi đủ evidence, dừng trước T10.
+
+  Implementation clarification: work hold nằm trên fulfillment, serialize bằng order lock;
+  không có refund operations trước T13. Alerts gồm durable attention/audit và sanitized log;
+  actual staff notification routing thuộc T14. Attempt UUID là lease/fencing capability, không
+  dùng username/callback/order ID làm quyền decrypt. Recovery không tự gửi lại UNCERTAIN.
+
+  Hoàn tất local 2026-10-22 theo yêu cầu Owner. Files: domain `fulfillment.py` + paid lifecycle
+  enum; application fulfillment port/service + UoW/InventoryCipher.open; SQL model/repo,
+  orders/work metadata, schema head/Alembic env và `0009_fulfillment`; finite delivery adapter,
+  worker loop, bootstrap/WorkerSettings. Tests: `tests/fulfillment.py`, unit delivery models/
+  worker/runtime, contract delivery và integration fulfillment/recovery/races/failures/integrity/
+  migrations. README/PROJECT/ARCHITECTURE/CONVENTIONS/DATABASE/SECURITY/fulfillment/OP spec/plan
+  đồng bộ. Không dependencies hoặc speculative file/manual/refund/resend worker.
+
+  Git snapshot trước edits: HEAD `19e7b53` (T08 đã commit), index SHA-256 empty diff; current
+  index/head/branch giữ nguyên. Ghi chú T08 staged lúc đầu không thay snapshot này. Agent không
+  stage/commit/push/reset; AGENTS/task.md/ADRs, sáu skills/harness, pins/manifest/lock/.env.example,
+  Compose và revisions 1–8 giữ nguyên. T09 không chạy Bot/worker command thật.
+
+  Test-first: initial two PostgreSQL cases RED thiếu fulfillment model, adapter RED thiếu
+  finite sender, worker settings/loop RED thiếu WorkerSettings. Sau code các vertical slices
+  GREEN. Tests còn bắt/sửa wrong payload type trước SENDING, reduced retry budget sau restart,
+  freeform observation error và rewrite sending timestamp; mỗi case RED rồi GREEN. Historical
+  valid rows/DB-time seam kiểm thử expiry, không sleep TTL thật hoặc disable integrity guards.
+
+  | Command / gate | Kết quả cuối, exit 0 |
+  | --- | --- |
+  | `uv lock --check`; `uv sync --locked --no-build` | PASS; graph 50 kể cả project, pins giữ nguyên. |
+  | `uv run --no-sync ruff check .`; `uv run --no-sync ruff format --check .` | PASS; 195 owned Python files. |
+  | `uv run --no-sync pytest tests/unit tests/contract tests/architecture -q --tb=short` | **402 passed in 20.20s**. |
+  | `uv run --no-sync pytest tests/integration -q --tb=short` | **238 passed in 200.50s**, isolated marked PostgreSQL 18.6 thật. |
+  | `uv run --no-sync python scripts/check_architecture.py` | PASS. |
+  | `uv build --no-sources` | PASS sdist→wheel; source/secret/cache/protected artifact checks pass. |
+  | Runtime-only wheel commands dưới | PASS; 84 modules chính xác working tree, poisoned settings/no network/no pytest/native AES-GCM. |
+  | `uv audit --locked` | 49 third-party packages: no known vulnerabilities/adverse statuses. Experimental uv command, advisory snapshot. |
+  | `python scripts/verify_harness.py`; `python -B -m unittest discover -s tests -p test_harness.py -v` | PASS; **6 tests OK**, global Python 3.11.9 độc lập app CPython 3.12.15. |
+  | `git diff --check`; local-link/fence/whitespace/protected/index checks | PASS; chỉ T01–T09 done, T10 pending. |
+
+  ```text
+  uv export --locked --no-dev --no-emit-project --format requirements-txt --output-file .cache/t09/runtime-requirements.txt
+  uv venv --python .venv/Scripts/python.exe .cache/t09-wheel-runtime
+  uv pip install --offline --python .cache/t09-wheel-runtime/Scripts/python.exe --require-hashes --no-build -r .cache/t09/runtime-requirements.txt
+  uv pip install --python .cache/t09-wheel-runtime/Scripts/python.exe --no-index --no-deps dist/telebotshop-0.1.0-py3-none-any.whl
+  .cache/t09-wheel-runtime/Scripts/python.exe -I .cache/t09/runtime_smoke.py
+  .venv/Scripts/python.exe .cache/t09/artifact_check.py
+  ```
+
+  Acceptance evidence: two physical workers (distinct PG PIDs) không cùng claim locked work;
+  nonce stale/expired không prepare/decrypt/send. Hai phía thắng order lock với hold đều
+  deterministic; hold trước chặn decrypt, SENDING trước chặn automatic hold/refund. Claim chỉ
+  khóa work và commit; prepare/complete/recovery order→work, không DB transaction khi Telegram.
+  Unique-key/license gửi đúng typed material/private buyer, plain text/no preview, same unit
+  qua retry. Known rate-limit RETRY_WAIT tôn trọng retry-after; max attempts recheck trước decrypt.
+  FAILED/UNCERTAIN không auto requeue, allocation/payment giữ nguyên. Deadline hết không API.
+
+  Recovery CLAIMED→ABANDONED/READY, SENDING→UNCERTAIN. Late success trước/sau recovery chỉ giữ
+  typed/digest observation, không mark delivered hoặc overwrite current state. Fault injection
+  cả ba commit boundaries, sau API success trước result commit, mất ACK sau result commit và
+  cancellation: không mất paid work/allocate key mới hoặc tự gửi lại unknown send. Terminal
+  work/attempt/observations/binding/timestamps không rewrite/delete/truncate; freeform SDK error
+  không vào ledger/audit/log. T08 toàn bộ old-column data/ciphertext/receipt/work preservation,
+  metadata và guarded downgrade pass. CLI/runtime lifecycle mocks chứng minh resources đóng
+  cả normal/error/cancel; schema/key/Owner checks trước Bot startup, settings budgets validated.
+
+  Mutation review: đảo active-token check, bỏ hold gate, đảo CLAIMED recovery branch, bỏ late
+  result lease check: **mỗi probe 1 failed**, exit 1 đúng kỳ vọng; source restored byte-for-byte
+  trước final C/D. Five-axis self-review không còn Critical/High/Required trong T09. Không nới
+  lint/tests, thêm dependency, broker hoặc alternate entitlement contract. Environment/pins như T08.
+
+  Performance review bổ sung ba query indexes: attempts theo work, work theo order và active
+  attempt để hỗ trợ aggregate send count/transition guard/recovery khi ledger lớn; chưa claim
+  benchmark tải. Sau thay đổi, full C/D và wheel/runtime được chạy lại; wheel reinstall bằng
+  `uv pip install --python .cache/t09-wheel-runtime/Scripts/python.exe --no-index --no-deps --reinstall dist/telebotshop-0.1.0-py3-none-any.whl`.
+  Installed package và wheel đều so byte-for-byte với 84 source modules của working tree.
+
+  Cleanup: xác minh Compose project `telebotshop-t02`, service `postgres-test` và workspace
+  labels trước lifecycle actions. Sau final D: `test_schemas=0`, `other_connections=0`;
+  đã stop đúng service đã start cho T09, không down/remove volume hoặc đóng Docker Desktop.
+
+  Giới hạn: Telegram API/lifecycle mocked, chưa live Stars/key send, native OS signal/load/SLO,
+  hosted CI, Linux/macOS/container app, production role separation/webhook/image/deploy/restore.
+  Adapter deadline dùng host UTC so với DB lease, production cần clock synchronization. Lease
+  không fence được Telegram HTTP bên ngoài DB; unknown send dừng UNCERTAIN, không hứa exactly-once
+  network delivery. Alerts hiện attention/audit + sanitized log, staff notifications T14. Chưa
+  public Buy/core UI (T14), ba nonfinite/manual types (T10), history/resend (T11), refund/reconcile
+  operations (T13); hold chỉ là pre-send boundary, chưa toàn FD-06/refund acceptance.
+  **T09 hoàn tất; dừng trước T10 pending, cần được giao riêng.**
 
 - [ ] **T10 — File, reusable và manual fulfillment.** Depends: T09. Spec: CI-04, FD-04,06. Scope: từng typed dispatch adapter và manual work completion có permission/audit. Acceptance: mỗi loại giao đúng payload cho đúng buyer; unsupported/corrupt payload fail-closed; MANUAL không giả delivered khi payment tới. Verify: C + D + mocked message/document contracts; tách T10.a/b/c nếu cần, child nào xong không thay thế coverage cả ba loại.
 

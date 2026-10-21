@@ -9,6 +9,8 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 from sqlalchemy.engine import make_url
 from sqlalchemy.exc import ArgumentError
 
+from telebotshop.domain.errors import InvalidInput
+from telebotshop.domain.models.fulfillment import DeliveryPolicy
 from telebotshop.domain.models.identity import validate_telegram_id
 
 
@@ -137,3 +139,27 @@ class InventorySettings(BaseSettings):
 
     def dedup_key(self) -> bytes:
         return decode_inventory_key(self.inventory_dedup_key.get_secret_value())
+
+
+class WorkerSettings(BotSettings):
+    worker_claim_seconds: int = Field(default=30, ge=1, le=300)
+    worker_send_seconds: int = Field(default=60, ge=1, le=300)
+    worker_timeout_seconds: int = Field(default=10, ge=1, le=20)
+    worker_max_attempts: int = Field(default=3, ge=1, le=5)
+    worker_poll_seconds: float = Field(default=1, ge=0.05, le=60)
+
+    @model_validator(mode="after")
+    def validate_delivery_policy(self) -> "WorkerSettings":
+        try:
+            self.policy()
+        except InvalidInput:
+            raise ValueError("Invalid worker delivery policy") from None
+        return self
+
+    def policy(self) -> DeliveryPolicy:
+        return DeliveryPolicy(
+            claim_seconds=self.worker_claim_seconds,
+            send_seconds=self.worker_send_seconds,
+            timeout_seconds=self.worker_timeout_seconds,
+            max_attempts=self.worker_max_attempts,
+        )

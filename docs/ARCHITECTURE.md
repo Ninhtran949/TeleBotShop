@@ -2,7 +2,7 @@
 
 ## Trạng thái và lựa chọn
 
-Đây là baseline thiết kế được SE/SA chọn theo ủy quyền của Owner. T01–T08 đã triển khai toolchain/runtime, HTTP health, PostgreSQL/UoW/migrations, identity/permission/audit, public catalog/admin, encrypted inventory, finite orders/invoice intents và serialized pre-checkout approval, durable receipt, paid allocation và READY intent. Development polling dùng checker thật và ghi receipt trước offset; Buy/worker/production webhook chưa có. Yêu cầu nghiệp vụ gốc ở [`task.md`](../task.md); lý do chọn kiến trúc ở [ADR-0001](adr/0001-modular-monolith.md). Thiết kế chỉ dựng package/file khi một slice cần dùng, không tạo toàn bộ cây trống.
+Đây là baseline thiết kế được SE/SA chọn theo ủy quyền của Owner. T01–T09 đã triển khai toolchain/runtime, HTTP health, PostgreSQL/UoW/migrations, identity/permission/audit, public catalog/admin, encrypted inventory, finite orders/invoice intents và serialized pre-checkout approval, durable receipt, paid allocation và READY intent. Development polling dùng checker thật và ghi receipt trước offset; T09 có finite delivery worker; public Buy/production webhook chưa có. Yêu cầu nghiệp vụ gốc ở [`task.md`](../task.md); lý do chọn kiến trúc ở [ADR-0001](adr/0001-modular-monolith.md). Thiết kế chỉ dựng package/file khi một slice cần dùng, không tạo toàn bộ cây trống.
 
 Chọn **modular monolith**, một codebase/image, PostgreSQL là nguồn dữ liệu bền vững. Production dự kiến có hai process từ cùng image: HTTP ingress và fulfillment worker. Local polling chỉ là adapter development thay thế webhook, không chạy cùng webhook cho cùng bot.
 
@@ -66,7 +66,7 @@ AccessService, per-call UoW factory, customer/admin routers, ingress guard và B
 Polling kiểm tra schema/Owner rồi từ chối existing webhook, không delete/drop updates.
 T07 dùng native concurrent updates cap 32 để pre-checkout không chờ download; UoW/session
 vẫn riêng từng task. Shutdown drain/cancel trong 10s trước đóng Bot/engine, kể cả lỗi/cancel;
-SDK 3.31.0 chưa có public drain, dùng pending-task set private với regression tests. Chưa worker.
+SDK 3.31.0 chưa có public drain, dùng pending-task set private với regression tests. T09 có worker riêng.
 HTTP factory vẫn nhận readiness callable/lifespan, không import concrete DB adapter.
 Schema/transaction contract ở [DATABASE](DATABASE.md), controls/limits ở [SECURITY](SECURITY.md).
 
@@ -77,7 +77,7 @@ commit claim trước gọi sender, đóng UoW rồi mới network, sau đó per
 UoW khác. Không có DB session sống qua API call. `StarsInvoiceSender` nằm cạnh Telegram
 adapters hiện có; chỉ composition root/tests được wire concrete implementations.
 `expire-orders` là entrypoint một batch DB-only, chưa có process scheduler. Public polling
-chưa bật Buy/invoice khi worker T09 chưa có; không có flag mở sớm.
+chưa bật Buy/invoice; core navigation/checkout UI tích hợp ở T14.
 
 T07 thêm PreCheckoutService và callable port (`PreCheckout` → bool), nối qua orders port
 hiện có; không tạo repository riêng cho một approval row. `infrastructure/telegram/pre_checkout.py`
@@ -96,6 +96,17 @@ Handler lặp lại chỉ dedup. Financial message bypass ordinary private/rate/
 không mất receipt; DB failure propagate tới caller. Đây là private SDK hook có regression
 tests; phải kiểm tra lại khi nâng pin. Production webhook/auth/body cap còn pending, ASGI
 ack harness không phải ingress production hoặc live validation.
+
+T09 FulfillmentService dùng cùng CommittedWork, fulfillment port/repo + InventoryCipher.open
+sau entitlement checks. Claim transaction chỉ khóa work; commit trước prepare order→work.
+Attempt UUID là fencing token, lease nằm trên attempt, work giữ active attempt/due/send count/
+hold/attention. Prepare commit SENDING rồi sender mới gọi Telegram ngoài UoW; complete/recover
+khóa order→work và giữ late result observations. FAILED vẫn giữ payment/allocation.
+`workers/fulfillment.py` chỉ loop/recover/idle wait qua service, không SDK/SQL/crypto; bootstrap
+wire WorkerSettings/policy/cipher/repo/sender, đóng Bot/engine khi exit. `infrastructure/delivery/finite.py`
+gửi typed UNIQUE_KEY/LICENSE qua port, mapping known rejection khác uncertain; chưa dispatch
+file/reusable/manual hoặc expose decrypt API. Current hold là FD-06 pre-send boundary, refund
+operations ở T13; public Buy/core navigation ở T14, không suy whole-shop success từ worker.
 
 Domain identity/access/admin DTO là dataclass/enum thuần Python; application services sở
 hữu validation, permission và transaction. Repositories dùng SQLAlchemy Core metadata,

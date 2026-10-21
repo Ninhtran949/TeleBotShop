@@ -20,6 +20,7 @@ from telebotshop.admin.inventory import create_inventory_admin_router
 from telebotshop.api.health import create_api
 from telebotshop.application.services.access import AccessService
 from telebotshop.application.services.catalog import CatalogService
+from telebotshop.application.services.fulfillment import FulfillmentService
 from telebotshop.application.services.identity import IdentityService
 from telebotshop.application.services.inventory import InventoryService
 from telebotshop.application.services.orders import OrderService
@@ -29,14 +30,21 @@ from telebotshop.bot.routers.catalog import create_catalog_router
 from telebotshop.bot.routers.identity import create_customer_router
 from telebotshop.domain.errors import OwnerConfigurationError
 from telebotshop.domain.models.inventory import InventoryCryptoError
-from telebotshop.infrastructure.config import BotSettings, InventorySettings, Settings
+from telebotshop.infrastructure.config import (
+    BotSettings,
+    InventorySettings,
+    Settings,
+    WorkerSettings,
+)
 from telebotshop.infrastructure.crypto import AesGcmInventoryCipher
 from telebotshop.infrastructure.database.readiness import database_ready
 from telebotshop.infrastructure.database.uow import unit_of_work
+from telebotshop.infrastructure.delivery.finite import FiniteDeliverySender
 from telebotshop.infrastructure.telegram.guard import IngressGuard
 from telebotshop.infrastructure.telegram.logging import configure_telegram_logging
 from telebotshop.infrastructure.telegram.payments import PaymentsDispatcher, create_payment_router
 from telebotshop.infrastructure.telegram.pre_checkout import create_pre_checkout_router
+from telebotshop.workers.fulfillment import run_forever
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:
@@ -78,6 +86,34 @@ async def run_expiry(settings: Settings) -> tuple[int, int]:
             raise ExpiryStartupError("Database unavailable or schema outdated")
         orders = OrderService(partial(unit_of_work, engine))
         return await orders.expire(), await orders.recover_invoices()
+    finally:
+        await engine.dispose()
+
+
+async def run_worker(settings: WorkerSettings, inventory_settings: InventorySettings) -> None:
+    configure_telegram_logging()
+    cipher = AesGcmInventoryCipher(
+        inventory_settings.keyring(),
+        inventory_settings.inventory_current_key_version,
+        inventory_settings.dedup_key(),
+    )
+    engine = create_async_engine(
+        settings.database_url.get_secret_value(),
+        hide_parameters=True,
+        pool_pre_ping=True,
+        connect_args={"timeout": 2},
+    )
+    try:
+        if not await database_ready(engine):
+            raise PollingStartupError("Database unavailable or schema outdated")
+        factory = partial(unit_of_work, engine)
+        await IdentityService(factory).bootstrap_owner(settings.owner_id)
+        await InventoryService(factory, cipher, inventory_settings.low_stock_threshold).check_keys()
+        async with Bot(settings.bot_token.get_secret_value()) as bot:
+            service = FulfillmentService(
+                factory, cipher, FiniteDeliverySender(bot), settings.policy()
+            )
+            await run_forever(service, poll_seconds=settings.worker_poll_seconds)
     finally:
         await engine.dispose()
 
@@ -167,12 +203,18 @@ async def run_polling(settings: BotSettings, inventory_settings: InventorySettin
 def main() -> int:
     parser = argparse.ArgumentParser(prog="telebotshop")
     parser.add_argument(
-        "mode", nargs="?", choices=("http", "polling", "expire-orders"), default="http"
+        "mode", nargs="?", choices=("http", "polling", "expire-orders", "worker"), default="http"
     )
     mode = parser.parse_args().mode
     try:
-        settings = BotSettings() if mode == "polling" else Settings()
-        inventory_settings = InventorySettings() if mode == "polling" else None
+        settings = (
+            WorkerSettings()
+            if mode == "worker"
+            else BotSettings()
+            if mode == "polling"
+            else Settings()
+        )
+        inventory_settings = InventorySettings() if mode in {"polling", "worker"} else None
     except ValidationError:
         print("Invalid application configuration", file=sys.stderr)
         return 2
@@ -189,7 +231,10 @@ def main() -> int:
     if isinstance(settings, BotSettings):
         assert inventory_settings is not None
         try:
-            asyncio.run(run_polling(settings, inventory_settings))
+            if isinstance(settings, WorkerSettings):
+                asyncio.run(run_worker(settings, inventory_settings))
+            else:
+                asyncio.run(run_polling(settings, inventory_settings))
         except OwnerConfigurationError:
             print(
                 "Owner configuration mismatch; controlled ownership review required",

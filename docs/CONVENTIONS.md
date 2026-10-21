@@ -47,7 +47,7 @@ Review theo correctness, simplicity, architecture, security, performance. Featur
 
 ## Toolchain và quality gates
 
-**T01–T08 đã thiết lập toolchain/runtime, PostgreSQL/migrations, identity/permission/audit, catalog/admin, encrypted inventory, finite orders/invoice intents, serialized pre-checkout approval, durable receipt/paid allocation/READY intent và các gate local dưới đây. CI chưa có.** Bằng chứng nằm trong [implementation plan](plans/shop/implementation-plan.md); lý do chọn ở [ADR-0004](adr/0004-toolchain-and-quality-gates.md).
+**T01–T09 đã thiết lập toolchain/runtime, PostgreSQL/migrations, identity/permission/audit, catalog/admin, encrypted inventory, finite orders/invoice intents, serialized pre-checkout approval, durable receipt/paid allocation/READY intent, fenced finite worker/recovery và các gate local dưới đây. CI chưa có.** Bằng chứng nằm trong [implementation plan](plans/shop/implementation-plan.md); lý do chọn ở [ADR-0004](adr/0004-toolchain-and-quality-gates.md).
 
 `pyproject.toml` cấu hình Python/dependency groups, Pytest và Ruff; `uv.lock` là lockfile duy nhất. `.python-version` pin CPython 3.12.15; `tool.uv.required-version` pin uv 0.13.4, build backend pin cùng phiên bản; dev group pin Pytest 9.1.1 và Ruff 0.17.1. T02 pin runtime packages và PostgreSQL image/digest; xem PROJECT/DATABASE. Ruff: target `py312`, line length 100, rules `E`, `F`, `I`, `B`, `UP`; dùng formatter của Ruff. `.agents/` được loại khỏi lint/format để giữ nguyên bytes upstream; Python do repo sở hữu, gồm harness, vẫn được kiểm tra. Thêm rule sau khi có nhu cầu; không disable rule hàng loạt hoặc auto-fix ngoài scope.
 

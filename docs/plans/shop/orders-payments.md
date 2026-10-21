@@ -1,6 +1,6 @@
 # Spec: orders-payments
 
-Status: T06–T08 finite order/invoice, serialized approval, durable receipt/paid allocation/READY intent đã triển khai. Polling có durable intake/checker thật; public Buy và delivery chờ worker T09, refund còn T13. Chưa nghiệm thu toàn OP hoặc live Stars. Nguồn: `task.md` §§3,5,8,11. Depends on: [identity-access](identity-access.md), [catalog-inventory](catalog-inventory.md). Quyết định an toàn: [ADR-0002](../../adr/0002-payment-and-fulfillment-safety.md).
+Status: T06–T08 finite order/invoice, serialized approval, durable receipt/paid allocation/READY intent đã triển khai. Polling có durable intake/checker thật; T09 có finite worker; public Buy/core UI còn T14, refund còn T13. Chưa nghiệm thu toàn OP hoặc live Stars. Nguồn: `task.md` §§3,5,8,11. Depends on: [identity-access](identity-access.md), [catalog-inventory](catalog-inventory.md). Quyết định an toàn: [ADR-0002](../../adr/0002-payment-and-fulfillment-safety.md).
 
 ## Order và invoice
 
@@ -39,7 +39,7 @@ Adapter có 4s DB/validation + 3s API answer budget theo
 [answerPreCheckoutQuery](https://core.telegram.org/bots/api#answerprecheckoutquery), không
 gọi network trong transaction; timeout/lost answer không reset binding hoặc blind retry.
 Query ID cap 256 ký tự là input policy dự án, không phải giới hạn Telegram công bố.
-T08 nối checker thật sau khi đăng ký durable receipt; Buy vẫn chờ worker T09.
+T08 nối checker thật sau khi đăng ký durable receipt; Buy/core UI còn T14.
 
 ## Payment receipt và atomic transition
 
@@ -93,6 +93,8 @@ Uncertain delivery/refund là state/attention trên work/refund record, không c
 
 Sau commit, worker có thể đọc work gồm `work_id`, `order_id`, `order_item_id`, buyer/destination đã xác minh, product type snapshot, allocation/resource reference, initial state READY. Không đặt plaintext key/raw Update vào work payload. Unique `order_item_id` bảo vệ một entitlement/work; các attempt là records khác, không tạo entitlement mới.
 
+T09 worker tiêu thụ cùng `CommittedWork` và thêm fenced attempts/observations; finite delivery
+không gọi ngược payment handler hoặc cấp key mới. Failed delivery vẫn giữ ledger và allocation.
 Đây là DB/domain contract mà [fulfillment](fulfillment.md) tiêu thụ; payment use case không import hoặc gọi worker. `fulfillments` và delivery attempts được xử lý qua application ports trong cùng domain model, không copy ORM/contract sang module thứ hai.
 
 ## Refund

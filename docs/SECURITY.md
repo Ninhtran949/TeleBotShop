@@ -1,9 +1,9 @@
-# Security controls — T03–T08
+# Security controls — T03–T09
 
 Phạm vi hiện có: identity, permission, audit, public catalog/admin, encrypted key/license
-inventory, finite orders/approval/receipt/paid allocation và development polling. Đây là controls đã
+inventory, finite orders/approval/receipt/paid allocation, finite delivery worker và development polling. Đây là controls đã
 triển khai/automated-test, chưa là production hoặc toàn bộ shop security acceptance.
-Entitlement decryption/delivery, history/tickets/refund, webhook và release có gate riêng trong
+Delivery ba loại còn lại, history/tickets/refund, webhook và release có gate riêng trong
 [implementation plan](plans/shop/implementation-plan.md).
 
 | Boundary | Control hiện tại | Evidence |
@@ -38,13 +38,15 @@ cho fields của từng type, SQL CHECK chặn extra/missing/wrong-type fields; 
 tự xác định một đoạn text tự do có bí mật do người vận hành nhập nhầm hay không.
 Photos chỉ dùng reference từ photo Update hoặc clear; không fetch arbitrary URLs/paths.
 Catalog ACTIVE là visibility, không tự chứng minh đủ stock/payload để checkout. T06 chỉ
-reserve finite AVAILABLE units; T08 có receipt/READY intent, public Buy/delivery vẫn chờ worker T09.
+reserve finite AVAILABLE units; T08 có receipt/READY intent, T09 có finite worker; public Buy còn core UI T14.
 
 Inventory secret payloads là dữ liệu nhạy cảm; stock views chỉ trả IDs/status/counts.
 Không có admin/customer decrypt hoặc bulk export use case trong T05. Crypto adapter có
 authenticated open primitive để kiểm chứng integrity/old versions; application crypto port
-chỉ có seal/fingerprint/proof. Entitlement authorization trước decrypt được nối khi T09/T10
-có order/ownership thật, không suy ra acceptance giao hàng từ crypto unit tests.
+T05 chỉ có seal/fingerprint/proof; T09 thêm open trong port cho authorized finite worker.
+Order/payment/buyer/destination/exact allocation/type/hold/token/lease được kiểm tra trước
+load envelope/decrypt, kiểm tra lease lại trước SENDING. Không có bulk/customer decrypt API;
+không suy ra acceptance giao hàng thật từ crypto hoặc mocked Telegram tests.
 Pending import không giữ plaintext; apply/cancel đặt encrypted envelopes về NULL. Expired
 actions vẫn giữ encrypted envelope cho tới khi cancel/retention được Owner chốt; không có
 background deletion policy hoặc guarantee xóa khỏi PostgreSQL WAL/backups.
@@ -75,7 +77,7 @@ nonempty start_parameter. Không xin name/email/phone/shipping, không dùng pay
 ngoài Stars. SDK error/body/token không đi vào DTO/log; known rejection khác unknown send.
 SENDING/UNCERTAIN không tự retry, kể cả crash hoặc mất commit sau send. Claims cũ được
 DB-only maintenance đánh dấu UNCERTAIN, giữ history chờ reconciliation. Chưa có permissioned
-invoice resend/reconcile command hoặc public Buy trước worker T09; không có live validation.
+invoice resend/reconcile command hoặc public Buy; core UI còn T14, không có live validation.
 
 T07 validate query ID (opaque, tối đa 256 ký tự, không control), server nonce payload,
 positive integer amount và Telegram buyer; không log raw query/order_info/SDK error.
@@ -83,7 +85,7 @@ Buyer/current product/state/exact reservation được kiểm tra trong locked U
 per order/query; DB chặn mutate/delete/truncate, expiry không clear query binding. Approval,
 hai TTL và audit atomic; API answer sau commit, uncertainty không auto-reset/retry.
 T08 nối checker thật cùng durable receipt intake; service success chỉ được chứng minh
-trên PostgreSQL thật + Telegram mock. Public Buy vẫn chưa bật trước worker T09.
+trên PostgreSQL thật + Telegram mock. Public Buy vẫn chưa bật, core UI thuộc T14.
 Giới hạn DB 4s/API 3s được kiểm tra với real lock/pool contention; chưa là Telegram live SLO.
 
 T08 receipt là financial event riêng: bypass ordinary message rate/private/profile checks
@@ -102,6 +104,22 @@ chưa chứng minh authenticated production webhook. Không delivery/send/decryp
 Unique charge + primary/order + item/work, row locks, immutable ALLOCATED và deferred commit
 constraint giữ ledger/entitlement atomic; paid không release key. Conflict/attention cần
 permissioned reconciliation/refund ở task sau, chưa có command tự giải quyết.
+
+T09 worker dùng attempt UUID như private fencing capability, không dùng order/callback ID
+để tự cấp quyền decrypt. Claim commit riêng trước order→work prepare; repo không commit.
+Finite sender chỉ gửi đúng private destination/type, nguyên văn secret, parse_mode=None,
+disabled previews, deadline/timeout có giới hạn; DTO repr ẩn, attempts/audit/log không chứa key,
+token, SDK body hoặc profile PII. Worker kiểm tra schema/Owner/key verifiers trước tạo Bot;
+settings có lease/send/timeout/retry bounds, không tự biến APP_ENV=test thành Bot API test server.
+
+Known rate rejection có retry-after + bounded exponential jitter/count; unknown timeout,
+SENDING expiry hoặc result quá lease về UNCERTAIN, không auto send/refund/reallocate. Claim
+chưa gửi hết lease mới requeue. Fault tests phủ rollback cả ba commit và mất ACK sau result
+commit; cancellation giữ durable work, Bot/engine đóng. Observation enum/shape/immutability
+chặn nhét freeform SDK errors vào ledger. Hold thắng order lock chặn decrypt/send; in-flight/
+uncertain chặn automatic hold/refund. Refund/reconcile/resend authorization/UI còn task sau.
+Operational alert hiện là durable attention/audit + warning work UUID/fixed code; staff
+notification delivery T14. Two-worker và two-order-lock-direction tests dùng PostgreSQL thật.
 
 Giới hạn cần hoàn thiện ở task tương ứng:
 

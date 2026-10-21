@@ -14,6 +14,9 @@ class OrderStatus(StrEnum):
     AWAITING_PAYMENT = "AWAITING_PAYMENT"
     EXPIRED = "EXPIRED"
     PAID = "PAID"
+    FULFILLING = "FULFILLING"
+    DELIVERED = "DELIVERED"
+    FAILED = "FAILED"
 
 
 class OrderAttention(StrEnum):

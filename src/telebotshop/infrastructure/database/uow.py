@@ -6,6 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 from telebotshop.application.ports.uow import UnitOfWork
 from telebotshop.infrastructure.database.repositories.access import SqlAccessRepository
 from telebotshop.infrastructure.database.repositories.catalog import SqlCatalogRepository
+from telebotshop.infrastructure.database.repositories.fulfillment import SqlFulfillmentRepository
 from telebotshop.infrastructure.database.repositories.identity import SqlIdentityRepository
 from telebotshop.infrastructure.database.repositories.inventory import SqlInventoryRepository
 from telebotshop.infrastructure.database.repositories.orders import SqlOrderRepository
@@ -21,6 +22,7 @@ class SqlAlchemyUnitOfWork(UnitOfWork):
         self.inventory = SqlInventoryRepository(session)
         self.orders = SqlOrderRepository(session)
         self.payments = SqlPaymentRepository(session)
+        self.fulfillment = SqlFulfillmentRepository(session)
 
     async def commit(self) -> None:
         await self.session.commit()

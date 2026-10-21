@@ -2,12 +2,13 @@
 
 T02 dùng PostgreSQL **18.6**, SQLAlchemy **2.0.55** Async + asyncpg **0.32.0** và
 Alembic **1.20.0**. T03 thêm identity/access/settings và audit repositories bằng SQLAlchemy
-Core tables; không trả ORM/session ra application. Head hiện tại **`0008_payments`**;
+Core tables; không trả ORM/session ra application. Head hiện tại **`0009_fulfillment`**;
 `0001_runtime` giữ nguyên, `0002_identity` thêm identity/Owner/audit, `0003_access` thêm
 explicit grants, settings và confirmation. T04 thêm `0004_catalog`; T05 thêm encrypted
 inventory/actions/key verifiers; T06 thêm orders/items/invoice intents và finite reservations.
 T07 thêm immutable query-bound pre-checkout approval và controlled reservation extension.
 T08 thêm receipt/conflict ledger, PAID/attention, permanent ALLOCATED và READY work.
+T09 mở finite work/attempt/recovery/observations, giữ nguyên revisions 1–8.
 
 | Tables | Contract |
 | --- | --- |
@@ -28,7 +29,9 @@ T08 thêm receipt/conflict ledger, PAID/attention, permanent ALLOCATED và READY
 | `pre_checkout_approvals` | Order PK/FK, unique opaque query ID, approved_at theo DB time; chặn UPDATE/DELETE/TRUNCATE. Một approval/order, giữ qua timeout/expiry. |
 | `payments` | Append-only bounded financial receipt, unique Telegram charge, nullable payer/order, MATCHED/REQUIRES_REVIEW + reason; partial unique primary MATCHED/order, không cấm extra receipts. |
 | `payment_conflicts` | Append-only minimal financial evidence + SHA-256 digest, unique payment/digest; không overwrite canonical receipt hoặc lưu raw Update/order_info PII. |
-| `fulfillments` | Unique order item, exact payment/unit/buyer/destination/type refs, initial READY; ownership trigger và immutable binding, không plaintext/attempt/lease trước T09. |
+| `fulfillments` | Unique order item + immutable payment/unit/buyer/destination/type; state/due/active attempt/send count/hold/attention. Initial READY; không plaintext. |
+| `delivery_attempts` | UUID đồng thời fencing token, work FK, claim/lease/send/completed times, state, safe code/message ID/retry-after; guarded transitions, terminal immutable, no delete/truncate. |
+| `delivery_observations` | Append-only typed outcome theo attempt/digest; late/duplicate results không overwrite quyết định. Fixed code enum, không raw error/payload. |
 
 ## Local development và test
 
@@ -256,5 +259,37 @@ Upgrade tests so sánh tất cả cột/rows cũ, thêm NULL allocation/attentio
 chạy payment sau upgrade; metadata không drift. Khi thêm cột, preservation tests dùng
 projection cũ tường minh thay vì prepared SELECT * có result type thay đổi. Downgrade 8→7
 chỉ khi không có receipt/conflict/work/PAID/ALLOCATED history; không xóa receipt để downgrade.
-Worker states/lease/attempts, reconciliation/refund và app/migration role separation thuộc
-task sau; READY chưa là giao hàng thành công.
+T09 triển khai worker states/lease/attempts; reconciliation/refund và app/migration role
+separation vẫn thuộc task sau. READY chưa là giao hàng thành công.
+
+
+## T09 finite delivery ledger
+
+`0009_fulfillment` thêm delivery_attempts/observations và active attempt/due/send count/hold/
+attention trên fulfillments; order mở FULFILLING/DELIVERED/FAILED. Payment và allocated key
+không đổi: delivery FAILED không có nghĩa unpaid. Snapshot/ciphertext/binding vẫn immutable.
+Work/attempt/order state và actual-send count được deferred constraint kiểm tra cùng commit;
+observations chỉ nhận typed fixed error codes, không text lỗi. Sending timestamp và lease đã
+durable không được rewrite lúc hoàn tất; terminal history không reset/delete/truncate.
+Indexes theo attempt work ID, fulfillment order ID/active attempt hỗ trợ history count,
+transition guard và recovery; due/expiry queues có partial indexes theo eligible state.
+
+Claim work-only FOR UPDATE SKIP LOCKED, insert CLAIMED attempt với UUID làm fence và commit.
+Prepare khóa order trước work, xác minh payment/owner/destination/allocation/type/hold/current
+attempt/unexpired lease rồi mới load encrypted envelope và decrypt. Recheck lease sau decrypt,
+chuyển SENDING + send count + order FULFILLING + audit cùng commit. Không DB connection qua API.
+Complete lưu result observation, chỉ đúng active SENDING token còn lease được apply; SENT cùng
+order DELIVERED, known rejection RETRY_WAIT hoặc FAILED, unknown/late UNCERTAIN. Late result
+không overwrite state mới hoặc xóa evidence. Retry giữ nguyên unit, budget rechecked sau restart.
+
+Recovery chọn expired candidates theo DB clock, lock orders SKIP LOCKED rồi work, recheck lease.
+Expired CLAIMED→ABANDONED + READY; expired SENDING→UNCERTAIN + attention/audit. T13 hold serialize
+theo order→work; hold thắng trước prepare chặn decrypt/send, SENDING/UNCERTAIN chặn auto hold/refund.
+Chưa có public setter/refund/reconcile operation. Alerts gồm attention/audit + sanitized warning.
+
+Upgrade preservation so sánh toàn bộ old columns/rows của T08, sau đó claim work thật; metadata
+drift và downgrade/re-upgrade có tests. Downgrade 9→8 chỉ khi chưa có attempts/observations,
+mọi work vẫn READY/zero sends/no hold và order chưa vào delivery lifecycle; không xóa history.
+Tests clock-controlled seed historical valid attempts hoặc inject DB-time result tại UoW,
+không SQLite, disable triggers hoặc sleep theo lease TTL thật. Two-physical-connection tests
+chứng minh SKIP LOCKED và cả hai thứ tự order lock với hold; gửi Telegram vẫn mock.

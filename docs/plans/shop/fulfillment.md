@@ -1,6 +1,6 @@
 # Spec: fulfillment
 
-Status: design baseline; chưa triển khai. Nguồn: `task.md` §§4,5,11. Depends on: committed work contract của [orders-payments](orders-payments.md). [ADR-0002](../../adr/0002-payment-and-fulfillment-safety.md) quyết định delivery guarantee.
+Status: T09 đã triển khai finite UNIQUE_KEY/LICENSE worker, claim/lease/recovery/retry/uncertain và pre-send hold boundary. File/reusable/manual còn T10, history/resend T11, actual refund/reconciliation T13; chưa toàn FD hoặc Telegram live acceptance. Nguồn: `task.md` §§4,5,11. Depends on: committed work contract của [orders-payments](orders-payments.md). [ADR-0002](../../adr/0002-payment-and-fulfillment-safety.md) quyết định delivery guarantee.
 
 ## Entitlement và dispatch
 
@@ -34,6 +34,32 @@ Lease hết khi CLAIMED và chưa gửi có thể requeue theo token; lease hế
 Known transient rejection có bằng chứng chưa accepted (ví dụ rate-limit response) được bounded exponential backoff/jitter, tôn trọng retry-after. Network timeout/connection loss sau khi có thể đã gửi không thuộc nhóm retry tự động. Budget/timeout pin trong settings và tests, không loop vô hạn hoặc nuốt lỗi; known permanent failure tạo attention/support path.
 
 Recovery scan durable rows khi startup; không dựa vào task/FSM/in-memory queue cũ. Kết quả muộn chỉ được ghi cho đúng attempt/token còn có quyền; nếu đã có manual intervention thì lưu observation an toàn, không overwrite quyết định mới. UNCERTAIN muốn resend cần authorized action rõ ràng và cảnh báo cùng nội dung có thể đã được gửi trước đó.
+
+## T09 implementation evidence và policy
+
+Work states READY/RETRY_WAIT/CLAIMED/SENDING/SENT/UNCERTAIN/FAILED đã có. Attempts thêm
+RETRYABLE và ABANDONED (claim chưa gửi bị recovery/hold); attempt UUID đồng thời fencing token.
+Giữ cùng CommittedWork của T08, exact allocation không đổi, encrypted reader chỉ chạy sau
+server-side entitlement checks. Work SENT đi cùng order DELIVERED; FAILED vẫn paid trên ledger.
+Late/stale result có append-only typed/digest observation, không overwrite newer/manual state.
+
+Default claim lease 30s, send lease 60s, API timeout 10s, tối đa 3 sends (config cap 5), idle
+poll 1s. Known rate-limit response: 2s exponential tới 60s + jitter, không sớm hơn retry_after;
+retry-after ngoài 1–86400s dừng FAILED theo input policy, không nhận là Telegram published cap.
+Budget được recheck trước decrypt sau restart. CLAIMED hết lease requeue; SENDING hết lease
+hoặc result quá lease UNCERTAIN, không blind retry. Sender kiểm tra absolute UTC deadline trước
+API; production cần clock sync. Cancellation không giả SENT/FAILED, durable SENDING chờ recovery.
+
+`telebotshop worker` chỉ development/test; startup/mỗi lượt recover DB ledger, claim/send
+tuần tự mỗi process, nhiều process cạnh tranh qua PostgreSQL. API không giữ UoW/connection.
+Refund hold là DB pre-send boundary có tests cả hai order-lock outcomes, chưa có refund setter/
+operations UI trước T13. Alerts hiện là attention/audit + redacted warning, staff Telegram
+notification routing T14. Public Buy/core navigation còn T14 và ba types còn T10.
+
+Nguồn API đối chiếu 2026-10-22: [sendMessage](https://core.telegram.org/bots/api#sendmessage),
+[retry_after](https://core.telegram.org/bots/api#responseparameters),
+[aiogram 3.31.0 sendMessage](https://docs.aiogram.dev/en/latest/api/methods/send_message.html).
+Đây là local/mock evidence, không bảo đảm exactly-once network delivery hoặc production readiness.
 
 ## Guarantee và giới hạn
 
