@@ -143,6 +143,7 @@ class InventoryState(StrEnum):
     AVAILABLE = "AVAILABLE"
     RESERVED = "RESERVED"
     RETIRED = "RETIRED"
+    ALLOCATED = "ALLOCATED"
 
 
 class InventoryActionKind(StrEnum):
@@ -177,6 +178,7 @@ class StockSummary:
     reserved: int
     retired: int
     low_stock: bool
+    allocated: int = 0
 
 
 @dataclass(frozen=True, repr=False)

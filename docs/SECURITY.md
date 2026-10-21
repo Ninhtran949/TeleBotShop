@@ -1,9 +1,9 @@
-# Security controls — T03–T07
+# Security controls — T03–T08
 
 Phạm vi hiện có: identity, permission, audit, public catalog/admin, encrypted key/license
-inventory và development polling. Đây là controls đã
+inventory, finite orders/approval/receipt/paid allocation và development polling. Đây là controls đã
 triển khai/automated-test, chưa là production hoặc toàn bộ shop security acceptance.
-Payments, entitlement decryption/delivery, orders/tickets, webhook và release có gate riêng trong
+Entitlement decryption/delivery, history/tickets/refund, webhook và release có gate riêng trong
 [implementation plan](plans/shop/implementation-plan.md).
 
 | Boundary | Control hiện tại | Evidence |
@@ -38,7 +38,7 @@ cho fields của từng type, SQL CHECK chặn extra/missing/wrong-type fields; 
 tự xác định một đoạn text tự do có bí mật do người vận hành nhập nhầm hay không.
 Photos chỉ dùng reference từ photo Update hoặc clear; không fetch arbitrary URLs/paths.
 Catalog ACTIVE là visibility, không tự chứng minh đủ stock/payload để checkout. T06 chỉ
-reserve finite AVAILABLE units; public Buy/payment intake/fulfillment vẫn chờ task sở hữu.
+reserve finite AVAILABLE units; T08 có receipt/READY intent, public Buy/delivery vẫn chờ worker T09.
 
 Inventory secret payloads là dữ liệu nhạy cảm; stock views chỉ trả IDs/status/counts.
 Không có admin/customer decrypt hoặc bulk export use case trong T05. Crypto adapter có
@@ -66,7 +66,7 @@ dùng fake token và mock Telegram transport, không gửi messages hoặc đổ
 
 T06 customer order use cases kiểm tra registered buyer từ DB; UUID action/order/product
 không cấp quyền. Một action chỉ giữ một product; callback không có authority về giá/quantity.
-Checkout không đọc/decrypt ciphertext; inventory views đếm riêng AVAILABLE/RESERVED/RETIRED.
+Checkout/payment không đọc/decrypt ciphertext; inventory views đếm riêng AVAILABLE/RESERVED/ALLOCATED/RETIRED.
 Owner check bảo vệ get/cancel/send dù caller bỏ qua handler. TTL/lock budgets dùng DB time,
 guarded release chỉ chạm exact reservation; catalog price edits không sửa order snapshot.
 
@@ -75,16 +75,33 @@ nonempty start_parameter. Không xin name/email/phone/shipping, không dùng pay
 ngoài Stars. SDK error/body/token không đi vào DTO/log; known rejection khác unknown send.
 SENDING/UNCERTAIN không tự retry, kể cả crash hoặc mất commit sau send. Claims cũ được
 DB-only maintenance đánh dấu UNCERTAIN, giữ history chờ reconciliation. Chưa có permissioned
-invoice resend/reconcile command hoặc public Buy trước T08, không có live payment intake.
+invoice resend/reconcile command hoặc public Buy trước worker T09; không có live validation.
 
 T07 validate query ID (opaque, tối đa 256 ký tự, không control), server nonce payload,
 positive integer amount và Telegram buyer; không log raw query/order_info/SDK error.
 Buyer/current product/state/exact reservation được kiểm tra trong locked UoW. One approval
 per order/query; DB chặn mutate/delete/truncate, expiry không clear query binding. Approval,
 hai TTL và audit atomic; API answer sau commit, uncertainty không auto-reset/retry.
-Runtime checker luôn từ chối pre-checkout tới T08; domain/service success chỉ chứng minh
-trên PostgreSQL thật + Telegram mock. Không có flag nhận tiền trước durable receipt.
+T08 nối checker thật cùng durable receipt intake; service success chỉ được chứng minh
+trên PostgreSQL thật + Telegram mock. Public Buy vẫn chưa bật trước worker T09.
 Giới hạn DB 4s/API 3s được kiểm tra với real lock/pool contention; chưa là Telegram live SLO.
+
+T08 receipt là financial event riêng: bypass ordinary message rate/private/profile checks
+trước handler để không mất bằng chứng nhận tiền; application vẫn xác minh payer từ Telegram ID,
+snapshot owner/XTR/amount/payload trước credit. Missing payer, unknown/wrong/extra/unsupported
+receipts lưu REQUIRES_REVIEW. Same charge conflict giữ canonical, append minimal evidence;
+không lưu raw Update, name/email/phone/address/order_info, plaintext key hoặc secret vào audit.
+Receipt DTO có byte/type/control bounds, repr ẩn; malformed ngoài policy fail trước ack,
+cần operator reconciliation thay vì silently drop. Charge/provider/shipping cap 1024 bytes,
+currency 16 và invoice payload 128 bytes là input policy, không gán cho Telegram published cap.
+Provider reference được giữ như evidence, không là authority về price/stock hoặc lý do reject XTR.
+
+Polling persist trước SDK offset; DB failure dừng fetch trước confirm receipt. Handler await
+commit trước return, errors không bị ordinary guard nuốt. ASGI harness 500/re-delivery test
+chưa chứng minh authenticated production webhook. Không delivery/send/decrypt trong handler.
+Unique charge + primary/order + item/work, row locks, immutable ALLOCATED và deferred commit
+constraint giữ ledger/entitlement atomic; paid không release key. Conflict/attention cần
+permissioned reconciliation/refund ở task sau, chưa có command tự giải quyết.
 
 Giới hạn cần hoàn thiện ở task tương ứng:
 

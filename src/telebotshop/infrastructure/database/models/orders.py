@@ -15,12 +15,20 @@ orders = sa.Table(
     sa.Column("expires_at", sa.DateTime(timezone=True), nullable=False),
     sa.Column("closed_at", sa.DateTime(timezone=True)),
     sa.Column("close_reason", sa.String(32)),
+    sa.Column("attention_reason", sa.String(32)),
     sa.UniqueConstraint("buyer_id", "checkout_action_id", name="uq_orders_buyer_action"),
-    sa.CheckConstraint("status IN ('AWAITING_PAYMENT', 'EXPIRED')", name="ck_orders_status"),
+    sa.CheckConstraint(
+        "status IN ('AWAITING_PAYMENT', 'EXPIRED', 'PAID')", name="ck_orders_status"
+    ),
+    sa.CheckConstraint(
+        "attention_reason IS NULL OR (status = 'PAID' AND attention_reason = 'RESERVATION_LOST')",
+        name="ck_orders_attention",
+    ),
     sa.CheckConstraint("expires_at >= created_at + interval '15 minutes'", name="ck_orders_ttl"),
     sa.CheckConstraint(
-        "(status = 'AWAITING_PAYMENT' AND closed_at IS NULL AND close_reason IS NULL) OR "
-        "(status = 'EXPIRED' AND closed_at IS NOT NULL AND close_reason IS NOT NULL "
+        "(status IN ('AWAITING_PAYMENT', 'PAID') AND closed_at IS NULL "
+        "AND close_reason IS NULL) OR "
+        "(status IN ('EXPIRED', 'PAID') AND closed_at IS NOT NULL AND close_reason IS NOT NULL "
         "AND close_reason IN ('CUSTOMER_CANCELLED', 'TTL_EXPIRED', 'INVOICE_REJECTED'))",
         name="ck_orders_close",
     ),

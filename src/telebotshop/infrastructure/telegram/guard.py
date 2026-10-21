@@ -39,6 +39,9 @@ class IngressGuard(BaseMiddleware):
         event: TelegramObject,
         data: dict[str, object],
     ) -> object:
+        if isinstance(event, Message) and event.successful_payment is not None:
+            # Financial receipts must survive rate limits, missing profiles and DB failures.
+            return await handler(event, data)
         if not isinstance(event, Message | CallbackQuery):
             return None
         message = event.message if isinstance(event, CallbackQuery) else event

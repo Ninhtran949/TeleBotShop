@@ -14,12 +14,13 @@ Mục tiêu từ [`task.md`](../task.md): shop Telegram bán tài nguyên số �
 | T04: catalog, public metadata năm loại và admin product maintenance | Đã triển khai và kiểm chứng local: schema head `0004_catalog`, category/subcategory, browse/search/pagination, staff tạo/sửa sản phẩm/giá/trạng thái/ảnh với confirmation, current permission và audit. Chỉ metadata công khai; chưa nhận đơn. |
 | T05: encrypted key/license inventory, import/retire/stock/low-stock | Đã triển khai và kiểm chứng local: head `0005_inventory`, AES-GCM/HMAC, versioned key guard, atomic TXT/CSV import, current inventory.manage, durable confirmation/audit và stock pagination. Download/send Telegram mock ngoài transaction, PostgreSQL thật. |
 | T06: finite orders/reservations, expiry/cancel, durable invoice intent | Đã triển khai và kiểm chứng local: head `0006_orders`, buyer/action idempotency, immutable quantity-one price snapshot, 15-minute DB TTL, guarded release, DB-only maintenance và mocked Stars invoice outcomes. |
-| T07: pre-checkout validation/serialized approval và bounded answer | Đã triển khai và kiểm chứng local: head `0007_pre_checkout`, one immutable approval/order/query, atomic TTL extension/audit, exact reservation/current product/owner/price checks, deadline/uncertainty/races. Polling nhận query nhưng từ chối tới T08; không có live payment intake. |
-| Public Buy/payments, production webhook/worker, CI, production image/deployment | Chưa triển khai; các phần tương ứng trong cây kiến trúc là cấu trúc đích. |
+| T07: pre-checkout validation/serialized approval và bounded answer | Đã triển khai và kiểm chứng local: head `0007_pre_checkout`, one immutable approval/order/query, atomic TTL extension/audit, exact reservation/current product/owner/price checks, deadline/uncertainty/races. T08 nối checker thật cùng receipt intake; không có live payment validation. |
+| T08: durable receipt/paid allocation/READY fulfillment intent | Đã triển khai local: head `0008_payments`, charge dedup/conflicts/extra review, PAID + attention khi mất reservation; atomic permanent allocation/work, commit-before-polling-offset, không delivery. |
+| Public Buy, production webhook/worker, CI, production image/deployment | Chưa triển khai; các phần tương ứng trong cây kiến trúc là cấu trúc đích. |
 | BotFather/test bot, live credentials, backup/restore | Chưa cấu hình hoặc kiểm chứng; local PostgreSQL dùng credentials giả tách biệt. |
-| Git | Branch `dev`, HEAD `29be52d` (T06); T05/T06 đã commit, Git sạch khi bắt đầu T07. T07 ở working tree, không stage/commit/push hoặc discard work. |
+| Git | Branch `dev`, HEAD `069fe52` (T07 đã commit trước T08 edits); index trống khớp snapshot đầu T08. T08 ở working tree; agent không stage/commit/push/discard work. |
 
-Trạng thái và bằng chứng của từng slice nằm trong [implementation plan](plans/shop/implementation-plan.md). T01–T07 hoàn tất; **T08** là task tiếp theo, còn pending và cần được giao riêng. Không tự chạy toàn roadmap khi chỉ được giao một task.
+Trạng thái và bằng chứng của từng slice nằm trong [implementation plan](plans/shop/implementation-plan.md). T01–T08 hoàn tất; **T09** là task tiếp theo, còn pending và cần được giao riêng. Không tự chạy toàn roadmap khi chỉ được giao một task.
 
 ## Đọc theo nhiệm vụ
 
@@ -77,22 +78,21 @@ python -B -m unittest discover -s tests -p test_harness.py -v
 
 HTTP không cần bot secrets. Polling cần BOT_TOKEN/OWNER_ID và inventory key settings trong environment bảo vệ, chỉ
 development/test, từ chối existing webhook; hướng dẫn trong README. Không chạy command
-polling thật từ các task code/test T03–T07. `expire-orders` chạy một batch DB-only,
+polling thật từ các task code/test T03–T08. `expire-orders` chạy một batch DB-only,
 không Bot/keys; hướng dẫn và giới hạn tại README/DATABASE.
 
-T07 verification: **332 unit/contract/architecture**, **160 PostgreSQL integration**, **6 harness**
-pass; lock/sync, lint/format, architecture, build/isolated runtime wheel và dependency audit
-pass. Wheel có 69 source modules khớp working tree; isolated runtime import với poisoned
-settings/no network/no pytest và native AES-GCM pass. Test giữ T03–T06 regressions, thêm
-two-physical-connection duplicate approval, global query binding, current state/price/owner,
-atomic TTL/audit rollback, approval-vs-expiry/cancel, real DB lock/pool budgets, lost API
-answer, concurrent dispatch/drain và T06 preservation/metadata drift. Bốn mutation probes
-buyer/amount/query/runtime gate bị test bắt, source restored trước final C/D.
-Mocked Telegram download/send trong end-to-end flow assert nằm ngoài DB transaction.
-Chưa có type checker, hosted CI, Telegram test/live hoặc production validation; scope hiện
-có và giới hạn ở [SECURITY](SECURITY.md). Public Buy/receipt/paid allocation và delivery
-chưa có; runtime pre-checkout từ chối tới T08, mocked approval không thay live Stars. Backup/restore
-keys, nonfinite payloads và entitled decrypt vẫn theo task sở hữu.
+T08 verification: **359 unit/contract/architecture**, **202 PostgreSQL integration**,
+**6 harness** pass; lock/sync/lint/format/architecture/build/isolated runtime wheel và dependency
+audit pass. Wheel có 75 package source modules khớp working tree; poisoned settings/no network/
+no pytest/native AES-GCM smoke pass. Tests giữ regressions T01–T07, thêm same-charge two-connection
+contention, conflicting/extra/unknown receipts, missing payer/unsupported fields, paid reservation
+lost/reallocated, both payment-vs-expiry lock orders, five rollback boundaries, commit-shape trigger,
+immutable ledger/allocation và T07 preservation/guarded downgrade/metadata. Polling offset trước/
+sau commit và ASGI 500/re-delivery được mock-test; không delivery call trong payment handler.
+Bốn mutation probes amount/duplicate/polling-offset/financial-guard bị bắt, source restored.
+Chưa có type checker, hosted CI, Telegram test/live, production webhook/deploy/restore hoặc
+worker/delivery validation. Public Buy chưa bật; reconciliation/refund và nonfinite payloads
+còn task sở hữu. Chi tiết và giới hạn ở [SECURITY](SECURITY.md) và task ledger.
 
 ## Điều kiện cần Owner cung cấp trước khi mở bán
 

@@ -2,7 +2,7 @@
 
 ## Trạng thái và lựa chọn
 
-Đây là baseline thiết kế được SE/SA chọn theo ủy quyền của Owner. T01–T07 đã triển khai toolchain/runtime, HTTP health, PostgreSQL/UoW/migrations, identity/permission/audit, public catalog/admin, encrypted inventory, finite orders/invoice intents và serialized pre-checkout approval. Development polling chưa bật Buy/approval trước durable receipt T08; worker/production webhook chưa có. Yêu cầu nghiệp vụ gốc ở [`task.md`](../task.md); lý do chọn kiến trúc ở [ADR-0001](adr/0001-modular-monolith.md). Thiết kế chỉ dựng package/file khi một slice cần dùng, không tạo toàn bộ cây trống.
+Đây là baseline thiết kế được SE/SA chọn theo ủy quyền của Owner. T01–T08 đã triển khai toolchain/runtime, HTTP health, PostgreSQL/UoW/migrations, identity/permission/audit, public catalog/admin, encrypted inventory, finite orders/invoice intents và serialized pre-checkout approval, durable receipt, paid allocation và READY intent. Development polling dùng checker thật và ghi receipt trước offset; Buy/worker/production webhook chưa có. Yêu cầu nghiệp vụ gốc ở [`task.md`](../task.md); lý do chọn kiến trúc ở [ADR-0001](adr/0001-modular-monolith.md). Thiết kế chỉ dựng package/file khi một slice cần dùng, không tạo toàn bộ cây trống.
 
 Chọn **modular monolith**, một codebase/image, PostgreSQL là nguồn dữ liệu bền vững. Production dự kiến có hai process từ cùng image: HTTP ingress và fulfillment worker. Local polling chỉ là adapter development thay thế webhook, không chạy cùng webhook cho cùng bot.
 
@@ -77,14 +77,25 @@ commit claim trước gọi sender, đóng UoW rồi mới network, sau đó per
 UoW khác. Không có DB session sống qua API call. `StarsInvoiceSender` nằm cạnh Telegram
 adapters hiện có; chỉ composition root/tests được wire concrete implementations.
 `expire-orders` là entrypoint một batch DB-only, chưa có process scheduler. Public polling
-không bật Buy/invoice đến khi T08 có durable receipt; không có flag bỏ qua gate đó.
+chưa bật Buy/invoice khi worker T09 chưa có; không có flag mở sớm.
 
 T07 thêm PreCheckoutService và callable port (`PreCheckout` → bool), nối qua orders port
 hiện có; không tạo repository riêng cho một approval row. `infrastructure/telegram/pre_checkout.py`
 chứa SDK parsing/answer và SQLAlchemy/SDK error mapping; chỉ import application port/domain.
 Service khóa order→product→unit, ghi approval/TTL/audit trong UoW; adapter đóng UoW trước
-AnswerPreCheckoutQuery. Runtime wire cùng router với checker từ chối tới T08; test composition
-wire service thật với PostgreSQL và Telegram mock. Approval không tạo payment/fulfillment.
+AnswerPreCheckoutQuery. T08 wire checker thật cùng receipt intake; tests dùng PostgreSQL
+và Telegram mock. Approval không tạo payment/fulfillment.
+
+T08 PaymentService dùng payments port + UoW hiện có; lock charge → order → exact reserved
+unit. Receipt/PAID/allocation/READY intent/redacted audit commit cùng nhau. Late receipt khi
+reservation đã mất tạo PAID + attention, không gọi worker hoặc decrypt. Domain CommittedWork
+là contract finite dùng chung; repo trả DTO, không trả SQL rows/session.
+`infrastructure/telegram/payments.py` giữ một parser/router và PaymentsDispatcher mỏng: native
+aiogram 3.31.0 set offset sau yield, nên wrapper persist successful_payment trước yield.
+Handler lặp lại chỉ dedup. Financial message bypass ordinary private/rate/error guard để
+không mất receipt; DB failure propagate tới caller. Đây là private SDK hook có regression
+tests; phải kiểm tra lại khi nâng pin. Production webhook/auth/body cap còn pending, ASGI
+ack harness không phải ingress production hoặc live validation.
 
 Domain identity/access/admin DTO là dataclass/enum thuần Python; application services sở
 hữu validation, permission và transaction. Repositories dùng SQLAlchemy Core metadata,

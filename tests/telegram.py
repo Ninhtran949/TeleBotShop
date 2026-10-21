@@ -53,6 +53,32 @@ def pre_checkout_update(
     )
 
 
+def payment_update(
+    *,
+    payload: str = "x" * 32,
+    charge: str = "FAKE-charge-1",
+    actor: int | None = 101,
+    amount: int = 100,
+    **fields,
+) -> Update:
+    message = {
+        "message_id": 4,
+        "date": 1,
+        "chat": {"id": 101, "type": "private"},
+        "successful_payment": {
+            "currency": "XTR",
+            "total_amount": amount,
+            "invoice_payload": payload,
+            "telegram_payment_charge_id": charge,
+            "provider_payment_charge_id": "",
+            **fields,
+        },
+    }
+    if actor is not None:
+        message["from"] = {"id": actor, "is_bot": False, "first_name": "Fake"}
+    return Update.model_validate({"update_id": 4, "message": message})
+
+
 def message_update(
     text: str, *, actor: int = 101, chat_id: int | None = None, chat_type: str = "private"
 ) -> Update:

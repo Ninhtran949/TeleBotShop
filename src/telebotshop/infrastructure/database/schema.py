@@ -1,1 +1,1 @@
-SCHEMA_HEAD = "0007_pre_checkout"
+SCHEMA_HEAD = "0008_payments"

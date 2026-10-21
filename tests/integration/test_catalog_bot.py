@@ -10,6 +10,8 @@ from sqlalchemy.ext.asyncio import AsyncEngine
 from telebotshop.application.services.access import AccessService
 from telebotshop.application.services.catalog import CatalogService
 from telebotshop.application.services.identity import IdentityService
+from telebotshop.application.services.payments import PaymentService
+from telebotshop.application.services.pre_checkout import PreCheckoutService
 from telebotshop.bootstrap import create_dispatcher
 from telebotshop.domain.models.catalog import SaleState
 from telebotshop.infrastructure.database.uow import unit_of_work
@@ -39,7 +41,14 @@ async def test_admin_customer_photo_price_and_hidden_callbacks_use_real_db_outsi
         return await telegram.send(bot, method, timeout)
 
     monkeypatch.setattr(telegram.bot.session, "make_request", AsyncMock(side_effect=send))
-    dispatcher = create_dispatcher(identity, access, catalog, inventory_service(migrated_database))
+    dispatcher = create_dispatcher(
+        identity,
+        access,
+        catalog,
+        inventory_service(migrated_database),
+        PreCheckoutService(factory),
+        PaymentService(factory),
+    )
 
     async def mutate(update: Update, *, cancel: bool = False) -> None:
         await dispatcher.feed_update(telegram.bot, update)

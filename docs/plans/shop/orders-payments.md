@@ -1,6 +1,6 @@
 # Spec: orders-payments
 
-Status: T06 finite order/invoice intent và T07 serialized pre-checkout validation/approval đã triển khai; public Buy/receipt, fulfillment/refund còn T08–T13. Polling từ chối approval tới khi có durable receipt intake. Chưa nghiệm thu toàn OP hoặc live Stars. Nguồn: `task.md` §§3,5,8,11. Depends on: [identity-access](identity-access.md), [catalog-inventory](catalog-inventory.md). Quyết định an toàn: [ADR-0002](../../adr/0002-payment-and-fulfillment-safety.md).
+Status: T06–T08 finite order/invoice, serialized approval, durable receipt/paid allocation/READY intent đã triển khai. Polling có durable intake/checker thật; public Buy và delivery chờ worker T09, refund còn T13. Chưa nghiệm thu toàn OP hoặc live Stars. Nguồn: `task.md` §§3,5,8,11. Depends on: [identity-access](identity-access.md), [catalog-inventory](catalog-inventory.md). Quyết định an toàn: [ADR-0002](../../adr/0002-payment-and-fulfillment-safety.md).
 
 ## Order và invoice
 
@@ -39,7 +39,7 @@ Adapter có 4s DB/validation + 3s API answer budget theo
 [answerPreCheckoutQuery](https://core.telegram.org/bots/api#answerprecheckoutquery), không
 gọi network trong transaction; timeout/lost answer không reset binding hoặc blind retry.
 Query ID cap 256 ký tự là input policy dự án, không phải giới hạn Telegram công bố.
-Runtime nhận query và trả unavailable tới T08; chưa bật Buy hoặc approval khi thiếu receipt.
+T08 nối checker thật sau khi đăng ký durable receipt; Buy vẫn chờ worker T09.
 
 ## Payment receipt và atomic transition
 
@@ -47,15 +47,30 @@ Chỉ authenticated `successful_payment` hợp lệ xác nhận incoming payment
 
 Trong UoW:
 
-1. Lock order nếu match được; đọc current state và đối chiếu buyer/amount/currency/payload snapshot từ server.
+1. Lock charge trước, rồi order nếu match được; đọc current state và đối chiếu buyer/amount/currency/payload snapshot từ server.
 2. Persist receipt tối thiểu. Nếu charge đã có, so sánh identity/content: cùng event là no-op; conflicting replay tạo security/audit attention, không ghi đè receipt hoặc credit order khác.
-3. Receipt khớp buyer/amount/currency/payload và order chưa có primary matched payment: lưu MATCHED và chuyển PAID. Nếu reservation còn hợp lệ thì đổi đúng unit thành allocation và tạo work duy nhất trong cùng commit; nếu reservation mất/expired thì vẫn MATCHED + PAID nhưng có `attention_reason`, không READY work hoặc lấy unit đã cấp cho người khác.
+3. Receipt khớp buyer/amount/currency/payload và order chưa có primary matched payment: lưu MATCHED và chuyển PAID. Nếu exact reservation vẫn thuộc order thì đổi đúng unit thành allocation và tạo work duy nhất trong cùng commit; TTL tự nó không release key. Nếu guarded expiry/cancel đã làm mất reservation thì vẫn MATCHED + PAID nhưng có `attention_reason`, không READY work hoặc lấy unit đã cấp cho người khác.
 4. Unknown order, extra charge cho order đã có primary payment hoặc amount/user/payload không khớp: giữ durable receipt với `REQUIRES_REVIEW`, không credit/giao hàng cho một order đoán được. Tách payment matching khỏi tình trạng stock: stock lỗi không được làm mất primary payment của order đã xác minh.
 5. Chỉ acknowledge webhook sau durable receipt/business outcome. DB failure trước commit trả non-2xx. Telegram update có thể gửi lại, không giả định retry là vô hạn hoặc bảo đảm đã lưu khi chưa commit.
 
 `payments` là receipt ledger: charge ID unique toàn hệ thống, nullable order reference cho unmatched receipt; chỉ **một matched payment cho mỗi order** bằng conditional uniqueness, không cấm ghi extra receipt cần review. Không đặt UNIQUE(order_id) trên mọi receipt khiến mất thông tin charge thứ hai.
 
 Paid-attention không có entitlement hợp lệ thì không tạo READY work giả. Chỉ reconciliation có quyền mới có thể hoàn tất allocation/work hoặc thực hiện refund theo receipt; mọi quyết định giữ audit và không overwrite allocation của order khác.
+
+T08: immutable receipt/conflict tables, conditional primary/order và unique item/work.
+Missing payer được giữ nullable để đối soát, không tạo fake user. Unsupported recurring hoặc
+shipping/order-info flow được giữ review; chỉ giữ flag, không raw PII. Provider reference là
+evidence được lưu, không giả định phải empty để credit XTR. PAID + allocation/work/audit
+atomic, deferred PostgreSQL constraint xác nhận shape ở commit. Financial ledger tự audit
+event chưa có actor; general order audit vẫn dùng buyer thật.
+
+Native aiogram polling tăng getUpdates offset sau yield; T08 wrapper persist receipt trước
+yield, lỗi DB không confirm. Router dùng cùng parser/service, duplicate handler không allocate
+lại. ASGI test harness await dispatcher chứng minh 500 khi commit fail và replay tạo đúng một
+work; production webhook/auth/body cap còn T14/T18, không gọi harness là live webhook.
+Sources: [SuccessfulPayment](https://core.telegram.org/bots/api#successfulpayment),
+[getUpdates confirmation](https://core.telegram.org/bots/api#getupdates),
+[webhook retry](https://core.telegram.org/bots/api#setwebhook), đối chiếu 2026-10-21 với SDK đã pin.
 
 ## State machine
 

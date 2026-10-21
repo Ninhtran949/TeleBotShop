@@ -13,6 +13,11 @@ INVOICE_CLAIM_TTL = timedelta(seconds=30)
 class OrderStatus(StrEnum):
     AWAITING_PAYMENT = "AWAITING_PAYMENT"
     EXPIRED = "EXPIRED"
+    PAID = "PAID"
+
+
+class OrderAttention(StrEnum):
+    RESERVATION_LOST = "RESERVATION_LOST"
 
 
 class CloseReason(StrEnum):
@@ -50,6 +55,7 @@ class Order:
     payload: str
     attempt_id: UUID | None = None
     invoice_started_at: datetime | None = None
+    attention_reason: OrderAttention | None = None
 
 
 @dataclass(frozen=True, repr=False)

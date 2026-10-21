@@ -49,15 +49,32 @@ async def test_t06_upgrade_preserves_order_invoice_reservation_ciphertext_and_ac
     product = await setup_orders(database)
     order = await historical_order(database, product)
     await payable_invoice(database, order)
-    before_order = await order_service(database).get(101, order.id)
     async with database.begin() as connection:
-        before = (await connection.execute(text("SELECT * FROM inventory_units"))).one()
+        before = (await connection.execute(text("SELECT * FROM inventory_units"))).mappings().one()
+        before_order = (await connection.execute(text("SELECT * FROM orders"))).mappings().one()
         intent = (await connection.execute(text("SELECT * FROM invoice_intents"))).one()
         await connection.run_sync(upgrade)
-        assert (await connection.execute(text("SELECT * FROM inventory_units"))).one() == before
+        columns = ", ".join(before)
+        after = (
+            (await connection.execute(text(f"SELECT {columns} FROM inventory_units")))
+            .mappings()
+            .one()
+        )
+        assert dict(after) == dict(before)
+        assert (
+            await connection.execute(
+                text("SELECT allocated_item_id, allocated_at FROM inventory_units")
+            )
+        ).one() == (None, None)
+        columns = ", ".join(before_order)
+        after_order = (
+            (await connection.execute(text(f"SELECT {columns} FROM orders"))).mappings().one()
+        )
+        assert dict(after_order) == dict(before_order)
+        assert await connection.scalar(text("SELECT attention_reason FROM orders")) is None
         assert (await connection.execute(text("SELECT * FROM invoice_intents"))).one() == intent
         assert await connection.scalar(text("SELECT count(*) FROM pre_checkout_approvals")) == 0
-    assert await order_service(database).get(101, order.id) == before_order
+    assert (await order_service(database).get(101, order.id)).id == order.id
     assert await order_service(database).expire() == 1
 
 

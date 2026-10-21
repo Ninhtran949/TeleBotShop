@@ -1,3 +1,4 @@
+from dataclasses import replace
 from uuid import uuid4
 
 from telebotshop.domain.models.orders import InvoiceDelivery, InvoiceStatus
@@ -13,8 +14,9 @@ def checkout_request(order, *, query_id="fake_query", buyer=101, amount=None):
 
 async def payable_invoice(engine, order, status=InvoiceStatus.SENT):
     async with unit_of_work(engine) as work:
-        await work.orders.claim_invoice(order, uuid4())
-        claimed = await work.orders.order(order.id)
+        attempt_id = uuid4()
+        await work.orders.claim_invoice(order, attempt_id)
+        claimed = replace(order, attempt_id=attempt_id, invoice_status=InvoiceStatus.SENDING)
         if status != InvoiceStatus.SENDING:
             await work.orders.finish_invoice(
                 claimed, InvoiceDelivery(status, 20 if status == InvoiceStatus.SENT else None)

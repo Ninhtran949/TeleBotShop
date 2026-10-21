@@ -31,6 +31,8 @@ inventory_units = sa.Table(
     sa.Column("status", sa.String(16), nullable=False, server_default="AVAILABLE"),
     sa.Column("reservation_item_id", sa.Uuid),
     sa.Column("reservation_expires_at", sa.DateTime(timezone=True)),
+    sa.Column("allocated_item_id", sa.Uuid),
+    sa.Column("allocated_at", sa.DateTime(timezone=True)),
     sa.Column(
         "created_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()
     ),
@@ -38,6 +40,13 @@ inventory_units = sa.Table(
     sa.UniqueConstraint("key_version", "nonce", name="uq_inventory_key_nonce"),
     sa.UniqueConstraint("id", "product_id", name="uq_inventory_unit_product"),
     sa.UniqueConstraint("reservation_item_id", name="uq_inventory_reservation"),
+    sa.UniqueConstraint("allocated_item_id", name="uq_inventory_allocation"),
+    sa.ForeignKeyConstraint(
+        ["allocated_item_id", "id"],
+        ["order_items.id", "order_items.inventory_unit_id"],
+        name="fk_inventory_allocation_item",
+        use_alter=True,
+    ),
     sa.ForeignKeyConstraint(
         ["reservation_item_id", "id"],
         ["order_items.id", "order_items.inventory_unit_id"],
@@ -52,13 +61,18 @@ inventory_units = sa.Table(
         "octet_length(ciphertext) BETWEEN 17 AND 8320", name="ck_inventory_ciphertext"
     ),
     sa.CheckConstraint(
-        "status IN ('AVAILABLE', 'RESERVED', 'RETIRED')", name="ck_inventory_status"
+        "status IN ('AVAILABLE', 'RESERVED', 'RETIRED', 'ALLOCATED')", name="ck_inventory_status"
     ),
     sa.CheckConstraint(
         "(status = 'RESERVED' AND reservation_item_id IS NOT NULL "
         "AND reservation_expires_at IS NOT NULL) OR "
         "(status <> 'RESERVED' AND reservation_item_id IS NULL AND reservation_expires_at IS NULL)",
         name="ck_inventory_reservation",
+    ),
+    sa.CheckConstraint(
+        "(status = 'ALLOCATED' AND allocated_item_id IS NOT NULL AND allocated_at IS NOT NULL) OR "
+        "(status <> 'ALLOCATED' AND allocated_item_id IS NULL AND allocated_at IS NULL)",
+        name="ck_inventory_allocation",
     ),
 )
 sa.Index(

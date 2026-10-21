@@ -14,6 +14,7 @@ from telebotshop.domain.models.orders import (
     InvoiceDelivery,
     InvoiceStatus,
     Order,
+    OrderAttention,
     OrderStatus,
 )
 from telebotshop.infrastructure.database.models.identity import audit_logs, users
@@ -33,6 +34,7 @@ def order_query():
         orders.c.status,
         orders.c.created_at,
         orders.c.expires_at,
+        orders.c.attention_reason,
         order_items.c.id.label("item_id"),
         order_items.c.product_id,
         order_items.c.inventory_unit_id,
@@ -69,6 +71,7 @@ def order_from_row(row: RowMapping) -> Order:
         row["payload"],
         row["attempt_id"],
         row["started_at"],
+        OrderAttention(row["attention_reason"]) if row["attention_reason"] else None,
     )
 
 

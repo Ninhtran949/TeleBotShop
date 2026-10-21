@@ -8,6 +8,8 @@ from aiogram.types import File
 from telebotshop.application.services.access import AccessService
 from telebotshop.application.services.catalog import CatalogService
 from telebotshop.application.services.identity import IdentityService
+from telebotshop.application.services.payments import PaymentService
+from telebotshop.application.services.pre_checkout import PreCheckoutService
 from telebotshop.bootstrap import create_dispatcher
 from telebotshop.domain.models.access import Permission
 from telebotshop.domain.models.identity import CustomerIdentity, Role
@@ -46,7 +48,12 @@ async def test_upload_confirm_stock_pages_retire_and_low_stock_use_real_db_outsi
     monkeypatch.setattr(telegram.bot, "get_file", get)
     monkeypatch.setattr(telegram.bot, "download_file", AsyncMock(side_effect=download))
     dispatcher = create_dispatcher(
-        IdentityService(factory), AccessService(factory), CatalogService(factory), inventory
+        IdentityService(factory),
+        AccessService(factory),
+        CatalogService(factory),
+        inventory,
+        PreCheckoutService(factory),
+        PaymentService(factory),
     )
 
     async def feed(update):
@@ -127,7 +134,14 @@ async def test_revocation_during_download_is_rechecked_before_persisting_import(
         destination.write(b"FAKE-PRIVATE")
 
     monkeypatch.setattr(telegram.bot, "download_file", AsyncMock(side_effect=download))
-    dispatcher = create_dispatcher(identity, access, CatalogService(factory), inventory)
+    dispatcher = create_dispatcher(
+        identity,
+        access,
+        CatalogService(factory),
+        inventory,
+        PreCheckoutService(factory),
+        PaymentService(factory),
+    )
     await dispatcher.feed_update(telegram.bot, document_update("/import DEMO-1", actor=101))
     assert "không có quyền" in telegram.calls[-1].text
     assert (await inventory.stock(9001, "DEMO-1")).summary.available == 0

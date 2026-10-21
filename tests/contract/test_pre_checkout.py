@@ -17,15 +17,19 @@ from tests.telegram import TelegramRecorder, message_update, pre_checkout_update
 
 
 @pytest.mark.asyncio
-async def test_runtime_pre_checkout_is_closed_until_durable_receipt_intake_exists(monkeypatch):
+async def test_runtime_pre_checkout_uses_service_with_durable_receipt_intake(monkeypatch):
     recorder = TelegramRecorder(monkeypatch)
     try:
-        dispatcher = create_dispatcher(Mock(), Mock(), Mock(), Mock())
+        check = AsyncMock(return_value=True)
+        dispatcher = create_dispatcher(
+            Mock(), Mock(), Mock(), Mock(), Mock(check=check), AsyncMock()
+        )
         await dispatcher.feed_update(recorder.bot, pre_checkout_update())
         assert len(recorder.calls) == 1
         answer = recorder.calls[0]
         assert isinstance(answer, AnswerPreCheckoutQuery)
-        assert answer.ok is False and answer.error_message
+        assert answer.ok is True and not answer.error_message
+        check.assert_awaited_once()
         assert "pre_checkout_query" in dispatcher.resolve_used_update_types()
     finally:
         await recorder.bot.session.close()
@@ -139,7 +143,7 @@ async def test_validation_timeout_leaves_budget_for_safe_answer(monkeypatch):
 @pytest.mark.asyncio
 async def test_native_concurrent_dispatch_answers_while_another_update_waits(monkeypatch):
     recorder = TelegramRecorder(monkeypatch)
-    dispatcher = create_dispatcher(Mock(), Mock(), Mock(), Mock())
+    dispatcher = create_dispatcher(Mock(), Mock(), Mock(), Mock(), AsyncMock(), AsyncMock())
     started, release, answered = asyncio.Event(), asyncio.Event(), asyncio.Event()
 
     @dispatcher.message(Command("slow"))

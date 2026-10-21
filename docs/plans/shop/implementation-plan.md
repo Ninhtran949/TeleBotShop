@@ -1,6 +1,6 @@
 # Implementation plan và task ledger
 
-Status: **T01–T07 hoàn tất; T08–T18 pending**. Owner giao T07 ngày 2026-10-21; Git sạch, HEAD `29be52d` khi bắt đầu. T07 ở working tree; không stage/commit/push hoặc tự mở rộng sang T08.
+Status: **T01–T08 hoàn tất; T09–T18 pending**. Owner giao T08 ngày 2026-10-21; HEAD hiện tại `069fe52` (T07). Index trống giữ nguyên; không stage/commit/push hoặc tự mở rộng sang T09.
 
 ## Cách nhận và bàn giao task
 
@@ -428,7 +428,98 @@ Check scope: **H** = hai harness commands trong PROJECT. **C** = applicable lock
   production image/deploy/restore và live latency/load chưa kiểm chứng.
   **T07 hoàn tất; T08 pending, cần được giao riêng.**
 
-- [ ] **T08 — Durable payment receipt và fulfillment intent.** Depends: T07. Spec: OP-03..05,07. Scope: payments/fulfillments contract, successful-payment handler và atomic UoW. Acceptance: duplicate/conflicting/extra/late/unknown receipts được giữ đúng; matched payment + allocation + work atomic; webhook không ack trước durable outcome. Verify: C + D, concurrent duplicates, injected commit failure và payment-vs-expiry race; no delivery call trong handler.
+- [x] **T08 — Durable payment receipt và fulfillment intent.** Depends: T07. Spec: OP-03..05,07. Scope: payments/fulfillments contract, successful-payment handler và atomic UoW. Acceptance: duplicate/conflicting/extra/late/unknown receipts được giữ đúng; matched payment + allocation + work atomic; webhook không ack trước durable outcome. Verify: C + D, concurrent duplicates, injected commit failure và payment-vs-expiry race; no delivery call trong handler.
+
+  - [x] **T08.a — Receipt ledger và typed committed work.** Minimal bounded successful-payment DTO, immutable payments/conflicting observations, MATCHED/REQUIRES_REVIEW, nullable unknown order/payer, unique charge và conditional primary matched/order; PAID/attention, permanent ALLOCATED unit và READY finite fulfillment intent. Migration 0008_payments, no plaintext/raw Update or fake worker states.
+  - [x] **T08.b — Atomic payment use case.** Charge-scoped transaction lock → order → exact unit; duplicates no-op, conflicting content durable review, extra charge preserved. First valid buyer/XTR/amount/payload receipt MATCHED + PAID; still-owned reservation allocated + one work atomically, otherwise PAID + attention/no READY work. Ledger/conflicts là append-only financial audit; matched order transition thêm redacted general audit. Rollback/commit/race tests, no network/decrypt.
+  - [x] **T08.c — Durable Telegram intake và wiring.** Shared successful-payment parser/handler bypass ordinary message admission/error swallowing; DB failure propagates. Pinned SDK polling wrapper persists financial receipt before yielding update/advancing offset; direct feed/webhook caller returns only after commit. Runtime pre-checkout uses T07 service once receipt handler registered. Production webhook/auth/body cap còn T14/T18; HTTP error/ack contract tested through an ASGI test harness, no live Telegram calls. No Buy before worker T09; no delivery in receipt handler.
+  - [x] **T08.d — Review/regressions/evidence.** UoW/schema/stock callers include ALLOCATED count; T07 upgrade/ciphertext/approval preservation, metadata and guarded downgrade; two-connection duplicate/extra/conflict and payment-vs-expiry tests, fault injection, C+D+H/build/isolated wheel/audit/docs and staged-index preservation. Stop before T09.
+
+  Clarification theo ADR-0002: TTL tự nó không giải phóng key; receipt thắng order lock khi
+  exact reservation còn thuộc order vẫn có thể allocate an toàn dù deadline vừa qua. Khi
+  guarded expiry/cancel đã release/reallocate, valid late receipt vẫn PAID + RESERVATION_LOST,
+  không lấy AVAILABLE unit hoặc key của order khác. Approval không phải payment evidence.
+  Unknown/missing-payer/unsupported recurring receipts giữ trong ledger cần review; không
+  tạo identity giả hoặc gán event hệ thống cho Owner. Original receipt không overwrite khi
+  replay conflict. Webhook production/auth còn T14/T18; không gọi mocked feed thành live webhook.
+
+  Hoàn tất local theo yêu cầu Owner ngày 2026-10-21. T08.a/b: `domain/models/payments.py`,
+  payments port/service, SQL tables/repo/UoW, migration `0008_payments`; Order PAID/attention,
+  inventory ALLOCATED/count/admin view. T08.c: shared parser/router + pinned SDK dispatcher,
+  financial ingress bypass, composition root/checker thật và tất cả callers/fixtures. Tests mới:
+  `tests/unit/test_payments.py`, `tests/contract/test_payment_intake.py`,
+  `tests/integration/test_payments.py`, `test_payment_intake.py`, `test_payment_migrations.py`,
+  `tests/payments.py`; existing migration/pre-checkout/bot fixtures cập nhật đúng schema/API.
+  README, PROJECT, ARCHITECTURE, CONVENTIONS, DATABASE, SECURITY và spec/plan đồng bộ.
+
+  Git: HEAD hiện tại `069fe52` là commit T07 có sẵn; initial index snapshot SHA-256 là empty
+  diff và giữ nguyên. Ghi chú đầu phiên còn nói T07 staged đã được sửa theo evidence hiện tại.
+  Không agent stage/commit/push/reset; giữ nguyên AGENTS/task.md/ADRs, sáu skills/harness,
+  manifest/lock/settings/Compose và revisions 1–7. Không thêm dependencies.
+
+  Test-first: ba initial PostgreSQL cases RED vì payments domain chưa có; ba intake cases RED
+  vì dispatcher chưa nhận payment services. Sau code, payment/stock/work và commit-before-offset
+  GREEN. Self-review bắt provider reference check quá chặt: regression XTR với nonempty provider
+  ID RED (1 failed/1 passed), sửa service + deferred constraint rồi pass; field chỉ là evidence.
+  First broad D: 196 passed/2 failed do cached prepared SELECT * đổi result shape sau DDL;
+  tests đổi sang toàn bộ old-column projection, không bỏ field/assertion hoặc disable cache.
+
+  | Command / acceptance | Kết quả cuối, exit 0 |
+  | --- | --- |
+  | `uv lock --check`; `uv sync --locked --no-build` | PASS; graph 50 kể cả project, pins giữ nguyên. |
+  | `uv run --no-sync ruff check .`; `ruff format --check .` | PASS; 174 owned Python files, không tắt rule. |
+  | `uv run --no-sync pytest tests/unit tests/contract tests/architecture -q --tb=short` | **359 passed in 20.36s**. |
+  | `uv run --no-sync pytest tests/integration -q --tb=short` | **202 passed in 162.05s**, PostgreSQL 18.6 thật, isolated marked DB/schemas. |
+  | `uv run --no-sync python scripts/check_architecture.py` | PASS. |
+  | `uv build --no-sources` | PASS sdist→wheel; artifact source/secret/cache checks pass. |
+  | Runtime wheel smoke theo commands dưới | PASS; environment riêng runtime only, 75 modules đúng working tree, poisoned settings/no network/no pytest và native AES-GCM smoke pass. |
+  | `uv audit --locked` | 49 third-party packages: no known vulnerabilities/adverse statuses; uv command experimental, advisory snapshot không thay whole-source/release audit. |
+  | `python scripts/verify_harness.py`; `python -B -m unittest discover -s tests -p test_harness.py -v` | PASS; **6 tests OK**, global Python 3.11.9 độc lập app 3.12.15. |
+  | `git diff --check`; document/local-link/fence/whitespace/protected/index checks | PASS; chỉ T01–T08 done, T09 pending. |
+
+  Exact runtime artifact commands (cache paths ignored; smoke asserts như README, thêm native AES-GCM):
+
+  ```text
+  uv export --locked --no-dev --no-emit-project --format requirements-txt --output-file .cache/t08/runtime-requirements.txt
+  uv venv --python .venv/Scripts/python.exe .cache/t08-wheel-runtime
+  uv pip install --offline --python .cache/t08-wheel-runtime/Scripts/python.exe --require-hashes --no-build -r .cache/t08/runtime-requirements.txt
+  uv pip install --python .cache/t08-wheel-runtime/Scripts/python.exe --no-index --no-deps dist/telebotshop-0.1.0-py3-none-any.whl
+  .cache/t08-wheel-runtime/Scripts/python.exe -I .cache/t08/runtime_smoke.py
+  .venv/Scripts/python.exe .cache/t08/artifact_check.py
+  ```
+
+  Concurrency evidence: same-charge advisory wait trên hai physical DB PIDs; different charge
+  cùng order qua hai RowShareLock connections chỉ một primary/work. Duplicate, cross-order
+  conflicting content/digest replay và extra charges không credit/cấp lại. Expiry thắng lock:
+  receipt vẫn PAID + RESERVATION_LOST; payment thắng lock: expiry SKIP LOCKED bỏ qua, key
+  ALLOCATED không release. Unit đã reserve/allocate cho buyer mới không bị late receipt lấy lại.
+  Snapshot price giữ dù catalog đổi. Unknown/missing payer, wrong buyer/currency/amount và
+  unsupported recurring/context giữ review, không tạo fake identity hoặc mất financial evidence.
+  Fault injection mark_paid/allocate/save_work/audit/commit rollback receipt/state/stock/work;
+  deferred trigger bắt missing intent. Direct SQL chặn sửa/xóa/truncate ledger/work, unpaid lại
+  và release allocated. T07 row/approval/ciphertext preservation, metadata và guarded downgrade pass.
+
+  Intake evidence: same parser cho polling và handler; native GetUpdates offset chưa tiến trước
+  durable record, DB error dừng fetch không ack, restart redelivers. Receipt bypass full rate
+  window/missing-profile/group admission; lỗi DB propagate, không generic-success hoặc send.
+  ASGI harness commit failure→500, replay→200 chỉ một receipt/work, không plaintext/PII/secret
+  response và không delivery API. Đây chưa phải authenticated deployed webhook.
+  Mutation review đảo amount check (**2 failed**), duplicate equality (**1 failed**), đưa record
+  sau polling yield (**1 failed**), bỏ financial guard bypass (**1 failed**): đều exit 1 đúng kỳ
+  vọng, mỗi source restored byte-for-byte trước final C/D. Five-axis self-review không còn
+  Critical/High/Required trong T08; không nới lint/tests. Environment/pins như T07, không nâng SDK.
+
+  Cleanup: xác minh Compose project `telebotshop-t02`, service `postgres-test` và exact workspace
+  label trước lifecycle actions. Sau final D, DB trả `test_schemas=0`, `other_connections=0`;
+  đã stop đúng postgres-test đã start cho T08, không down/remove volume hoặc đóng Docker Desktop.
+
+  Giới hạn: private aiogram 3.31.0 polling/drain hooks cần regression review khi nâng pin;
+  receipt persistence có thể trì hoãn polling khi DB contention, chưa live SLO/load evidence.
+  Review/conflict/paid-attention records chờ reconciliation/refund có quyền ở task sau; chưa
+  tự sửa receipt, lấy key mới hoặc hoàn tiền. Chưa worker/lease/attempt/decrypt/delivery/Buy,
+  production webhook/auth, actual Telegram test/live, hosted CI, Linux/macOS/container app,
+  production role separation/image/deploy hoặc key/DB restore. Không gọi mocks là live gates.
+  **T08 hoàn tất; dừng trước T09 pending, cần được giao riêng.**
 
 - [ ] **T09 — Key/license worker và recovery.** Depends: T08. Spec: FD-01..03,06; CI-05. Scope: work claim/lease/CAS, delivery attempts, unique-key/license sending, retry/uncertain/alerts. Acceptance: một active sender, stale token bị chặn, crash sau send không cấp key mới và không auto-send uncertain. Verify: C + D, two-worker races và fault injection trước/sau từng durable/send boundary; focused security review.
 

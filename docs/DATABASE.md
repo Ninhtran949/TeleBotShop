@@ -2,11 +2,12 @@
 
 T02 dùng PostgreSQL **18.6**, SQLAlchemy **2.0.55** Async + asyncpg **0.32.0** và
 Alembic **1.20.0**. T03 thêm identity/access/settings và audit repositories bằng SQLAlchemy
-Core tables; không trả ORM/session ra application. Head hiện tại **`0007_pre_checkout`**;
+Core tables; không trả ORM/session ra application. Head hiện tại **`0008_payments`**;
 `0001_runtime` giữ nguyên, `0002_identity` thêm identity/Owner/audit, `0003_access` thêm
 explicit grants, settings và confirmation. T04 thêm `0004_catalog`; T05 thêm encrypted
 inventory/actions/key verifiers; T06 thêm orders/items/invoice intents và finite reservations.
 T07 thêm immutable query-bound pre-checkout approval và controlled reservation extension.
+T08 thêm receipt/conflict ledger, PAID/attention, permanent ALLOCATED và READY work.
 
 | Tables | Contract |
 | --- | --- |
@@ -19,12 +20,15 @@ T07 thêm immutable query-bound pre-checkout approval và controlled reservation
 | `categories` | UUID/code unique, public name, optional parent FK; trigger giữ code/parent immutable và chỉ cho parent là root. |
 | `products` | UUID/SKU unique immutable, type immutable, category FK, positive BIGINT Stars, public name/description/typed JSONB, HIDDEN/ACTIVE, optional public photo ID và version. |
 | `catalog_actions` | Catalog-owned pending intent; actor FK, kind, preallocated target UUID, bounded typed public JSONB, expected version, expiry/status/completed_at. Create target chưa tồn tại nên target không có FK. |
-| `inventory_units` | Finite UNIQUE_KEY/LICENSE; product FK/type guard, encrypted BYTEA + nonce/version, per-product HMAC fingerprint unique, unique key-version/nonce, AVAILABLE/RESERVED/RETIRED. Identity/ciphertext/fingerprint immutable; exact reservation item FK/expiry; không delete/resurrect RETIRED. |
+| `inventory_units` | Finite UNIQUE_KEY/LICENSE; product FK/type guard, encrypted BYTEA + nonce/version, per-product HMAC fingerprint unique, unique key-version/nonce, AVAILABLE/RESERVED/ALLOCATED/RETIRED. Identity/ciphertext/fingerprint immutable; exact reservation/allocation item FKs; ALLOCATED không release/retire hoặc đổi binding. |
 | `inventory_actions` | Actor/product FKs, import hoặc retire, số lượng 1–1000, 10-minute expiry, status/completed_at. Pending import giữ encrypted envelopes JSONB; retire có composite unit/product FK. Apply/cancel clear envelopes. |
 | `inventory_crypto_state` | Singleton chỉ lưu HMAC verifiers của dedup/AES keys theo version, không lưu raw keys. Khóa row khi kiểm tra/register; từ chối đổi dedup, đổi key cùng version hoặc bỏ registered version. |
 | `orders`, `order_items` | Buyer/action unique, immutable quantity-one XTR/public product/price snapshot và finite unit/product FKs; DB-time TTL, guarded unpaid close và retained history. |
 | `invoice_intents` | Một opaque payload/order, durable unique attempt, READY/SENDING/SENT/REJECTED/UNCERTAIN/CANCELLED; no automatic resend, không phải payment receipt. |
 | `pre_checkout_approvals` | Order PK/FK, unique opaque query ID, approved_at theo DB time; chặn UPDATE/DELETE/TRUNCATE. Một approval/order, giữ qua timeout/expiry. |
+| `payments` | Append-only bounded financial receipt, unique Telegram charge, nullable payer/order, MATCHED/REQUIRES_REVIEW + reason; partial unique primary MATCHED/order, không cấm extra receipts. |
+| `payment_conflicts` | Append-only minimal financial evidence + SHA-256 digest, unique payment/digest; không overwrite canonical receipt hoặc lưu raw Update/order_info PII. |
+| `fulfillments` | Unique order item, exact payment/unit/buyer/destination/type refs, initial READY; ownership trigger và immutable binding, không plaintext/attempt/lease trước T09. |
 
 ## Local development và test
 
@@ -157,7 +161,7 @@ không đọc ciphertext vào DTO hoặc log. 5 units/products mỗi trang; low-
 finite SKU có committed AVAILABLE count ≤ configured threshold, không tính pending batch.
 T04→T05 migration giữ products, audit và pending product confirmation hoạt động; không
 auto-seed units. `0001_runtime`–`0005_inventory` giữ nguyên. T06 thêm RESERVED/reservation
-FK và last-key checkout race; ALLOCATED/payment-vs-expiry thuộc T08.
+FK và last-key checkout race; T08 bổ sung ALLOCATED/payment-vs-expiry.
 
 ## T06 orders và reservations
 
@@ -175,9 +179,8 @@ transaction; không retry external effect từ lỗi DB. Khóa product cũng ser
 Cancel/expiry khóa order trước, chỉ AWAITING_PAYMENT→EXPIRED, release bằng đúng item ID
 và audit cùng commit. Trigger chặn sửa snapshot, resurrect order, release reservation còn
 AWAITING và retire RESERVED. Expiry khóa theo order ID với SKIP LOCKED, mỗi batch ≤100;
-không release đơn mới chỉ vì unit từng thuộc đơn cũ. T07/T08 phải mở rộng migration/state
-guards cho approval gia hạn/paid allocation; T07 đã thêm approval extension, paid allocation
-còn T08. T06/T07 chưa tạo PAID giả hoặc payment tables.
+không release đơn mới chỉ vì unit từng thuộc đơn cũ. T07 mở approval extension; T08 mở
+paid allocation với payment evidence. Paid order và allocated unit không trở lại unpaid/available.
 
 Invoice claim READY→SENDING/attempt commit trước API. Kết quả SENT/REJECTED/UNCERTAIN
 persist trong transaction khác; known reject close/release chỉ nếu order còn unpaid.
@@ -207,7 +210,7 @@ DB/validation budget 4s bao gồm pool/locks/commit; SET LOCAL lock 2s/statement
 port vẫn áp dụng bên trong total budget. Answer có 3s budget riêng, không network dưới lock.
 API timeout hoặc lost answer không xóa approval; different query không được tự mở lại.
 Invoice REJECTED tới sau approval là evidence mâu thuẫn: lưu UNCERTAIN, giữ reservation thay
-vì tự release. Approval chưa phải receipt/PAID; matching late receipt/allocation còn T08.
+vì tự release. Approval chưa phải receipt/PAID; T08 xác nhận bằng successful_payment.
 T06 upgrade preservation, metadata drift và rollback hai TTL/approval/audit được test trên
 PostgreSQL thật. Downgrade 7→6 chỉ khi approval table rỗng; có approval history thì từ chối.
 
@@ -227,3 +230,31 @@ Sources: [SQLAlchemy async session ownership](https://docs.sqlalchemy.org/en/20/
 [official PostgreSQL image/18 volume](https://hub.docker.com/_/postgres),
 [PostgreSQL shared comments](https://www.postgresql.org/docs/18/functions-info.html#FUNCTIONS-INFO-COMMENT-TABLE).
 [PostgreSQL regex bounds](https://www.postgresql.org/docs/18/functions-matching.html#POSIX-QUANTIFIERS-TABLE).
+
+
+## T08 receipts và committed fulfillment
+
+`0008_payments` giữ nguyên revisions 1–7, identity/catalog/ciphertext/invoice/approval history.
+Charge-scoped advisory transaction lock dùng signed SHA-256 prefix; collision chỉ serialize,
+unique charge vẫn là authority. Tiếp theo lock order rồi exact reserved unit, cùng lock order
+của expiry/cancel. Different charges/order serialize để chỉ một MATCHED; các charge còn lại
+được lưu review. Same charge khác nội dung tạo conflict evidence duy nhất theo digest.
+
+Một transaction lưu MATCHED → PAID → RESERVED→ALLOCATED → READY work + general audit.
+Deferred constraint trigger kiểm tra khi commit: snapshot payer/payload/XTR/amount đúng và
+hoặc exact allocation/work, hoặc PAID + RESERVATION_LOST không có work giả. Failure ở receipt,
+state, allocation, intent, audit hoặc commit rollback toàn bộ. General audit vẫn cần actor thật;
+unmatched/conflicting financial events có append-only ledger riêng, không gán cho Owner giả.
+
+TTL tự nó không release stock. Receipt thắng lock khi reservation vẫn thuộc order có thể
+allocate; nếu expiry/cancel đã release hoặc unit thuộc buyer khác thì PAID + attention, không
+lấy lại AVAILABLE/RESERVED/ALLOCATED unit. Paid giữ nguyên closed_at/reason trước đó để
+không xóa lịch sử expiry/cancel. Pending expiry/cancel không thể release paid allocation.
+Stock views đếm riêng ALLOCATED; payment use case không đọc ciphertext.
+
+Upgrade tests so sánh tất cả cột/rows cũ, thêm NULL allocation/attention, giữ approval và
+chạy payment sau upgrade; metadata không drift. Khi thêm cột, preservation tests dùng
+projection cũ tường minh thay vì prepared SELECT * có result type thay đổi. Downgrade 8→7
+chỉ khi không có receipt/conflict/work/PAID/ALLOCATED history; không xóa receipt để downgrade.
+Worker states/lease/attempts, reconciliation/refund và app/migration role separation thuộc
+task sau; READY chưa là giao hàng thành công.

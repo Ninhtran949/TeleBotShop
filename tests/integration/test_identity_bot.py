@@ -11,6 +11,8 @@ from sqlalchemy.ext.asyncio import AsyncEngine
 from telebotshop.application.services.access import AccessService
 from telebotshop.application.services.catalog import CatalogService
 from telebotshop.application.services.identity import IdentityService
+from telebotshop.application.services.payments import PaymentService
+from telebotshop.application.services.pre_checkout import PreCheckoutService
 from telebotshop.bootstrap import create_dispatcher
 from telebotshop.domain.models.access import Permission
 from telebotshop.infrastructure.database.uow import unit_of_work
@@ -40,7 +42,12 @@ async def test_start_admin_confirm_revoke_and_settings_use_real_db_outside_teleg
         telegram.bot.session, "make_request", AsyncMock(side_effect=assert_closed_uow)
     )
     dispatcher = create_dispatcher(
-        identity, access, CatalogService(factory), inventory_service(migrated_database)
+        identity,
+        access,
+        CatalogService(factory),
+        inventory_service(migrated_database),
+        PreCheckoutService(factory),
+        PaymentService(factory),
     )
     await dispatcher.feed_update(telegram.bot, message_update("/start"))
     await dispatcher.feed_update(telegram.bot, message_update("/admin"))

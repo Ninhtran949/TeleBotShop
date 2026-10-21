@@ -23,17 +23,19 @@ from telebotshop.application.services.catalog import CatalogService
 from telebotshop.application.services.identity import IdentityService
 from telebotshop.application.services.inventory import InventoryService
 from telebotshop.application.services.orders import OrderService
+from telebotshop.application.services.payments import PaymentService
+from telebotshop.application.services.pre_checkout import PreCheckoutService
 from telebotshop.bot.routers.catalog import create_catalog_router
 from telebotshop.bot.routers.identity import create_customer_router
 from telebotshop.domain.errors import OwnerConfigurationError
 from telebotshop.domain.models.inventory import InventoryCryptoError
-from telebotshop.domain.models.pre_checkout import PreCheckout
 from telebotshop.infrastructure.config import BotSettings, InventorySettings, Settings
 from telebotshop.infrastructure.crypto import AesGcmInventoryCipher
 from telebotshop.infrastructure.database.readiness import database_ready
 from telebotshop.infrastructure.database.uow import unit_of_work
 from telebotshop.infrastructure.telegram.guard import IngressGuard
 from telebotshop.infrastructure.telegram.logging import configure_telegram_logging
+from telebotshop.infrastructure.telegram.payments import PaymentsDispatcher, create_payment_router
 from telebotshop.infrastructure.telegram.pre_checkout import create_pre_checkout_router
 
 
@@ -64,11 +66,6 @@ class ExpiryStartupError(Exception):
     pass
 
 
-async def _pre_checkout_unavailable(_request: PreCheckout) -> bool:
-    # Durable receipt intake is required before enabling approvals in T08.
-    return False
-
-
 async def run_expiry(settings: Settings) -> tuple[int, int]:
     engine = create_async_engine(
         settings.database_url.get_secret_value(),
@@ -90,17 +87,20 @@ def create_dispatcher(
     access: AccessService,
     catalog: CatalogService,
     inventory: InventoryService,
+    pre_checkout: PreCheckoutService,
+    payments: PaymentService,
 ) -> Dispatcher:
-    dispatcher = Dispatcher(disable_fsm=True)
+    dispatcher = PaymentsDispatcher(payments.record)
     guard = IngressGuard()
     dispatcher.message.outer_middleware(guard)
     dispatcher.callback_query.outer_middleware(guard)
+    dispatcher.include_router(create_payment_router(payments.record))
     dispatcher.include_router(create_customer_router(identity))
     dispatcher.include_router(create_catalog_router(catalog))
     dispatcher.include_router(create_admin_router(access))
     dispatcher.include_router(create_catalog_admin_router(catalog, access))
     dispatcher.include_router(create_inventory_admin_router(inventory, access))
-    dispatcher.include_router(create_pre_checkout_router(_pre_checkout_unavailable))
+    dispatcher.include_router(create_pre_checkout_router(pre_checkout.check))
     fallback = Router(name="unknown_callback")
 
     @fallback.callback_query()
@@ -135,7 +135,14 @@ async def run_polling(settings: BotSettings, inventory_settings: InventorySettin
         async with Bot(settings.bot_token.get_secret_value()) as bot:
             if (await bot.get_webhook_info()).url:
                 raise PollingStartupError("Webhook is configured; polling refused")
-            dispatcher = create_dispatcher(identity, access, CatalogService(factory), inventory)
+            dispatcher = create_dispatcher(
+                identity,
+                access,
+                CatalogService(factory),
+                inventory,
+                PreCheckoutService(factory),
+                PaymentService(factory),
+            )
             try:
                 await dispatcher.start_polling(
                     bot,
