@@ -12,10 +12,11 @@ from sqlalchemy.ext.asyncio import AsyncEngine
 from telebotshop.application.services.access import AccessService
 from telebotshop.application.services.catalog import CatalogService
 from telebotshop.domain.models.access import ROLE_PERMISSIONS
+from telebotshop.domain.models.inventory import ImportFormat
 from telebotshop.infrastructure.database.models.identity import metadata
 from telebotshop.infrastructure.database.schema import SCHEMA_HEAD
 from telebotshop.infrastructure.database.uow import unit_of_work
-from tests.inventory import setup_inventory
+from tests.inventory import inventory_service, setup_inventory
 
 
 @pytest.mark.asyncio
@@ -34,6 +35,63 @@ async def test_t04_upgrade_preserves_catalog_audit_and_pending_product_confirmat
         assert await connection.scalar(text("SELECT count(*) FROM inventory_units")) == 0
     assert await catalog.confirm(9001, pending.id) is True
     assert (await catalog.admin_product(9001, "DEMO-1")).draft.price_stars == 300
+
+
+@pytest.mark.asyncio
+async def test_t05_upgrade_preserves_ciphertext_keys_audit_and_pending_import(database):
+    async with database.begin() as connection:
+        await connection.run_sync(upgrade, "0005_inventory")
+    await setup_inventory(database)
+    inventory = inventory_service(database)
+    imported = await inventory.prepare_import(9001, "DEMO-1", b"FAKE-existing", ImportFormat.TXT)
+    await inventory.confirm(9001, imported.id)
+    pending = await inventory.prepare_import(9001, "DEMO-1", b"FAKE-pending", ImportFormat.TXT)
+    async with database.begin() as connection:
+        before = (
+            await connection.execute(
+                text(
+                    "SELECT id, fingerprint, key_version, nonce, ciphertext, created_at "
+                    "FROM inventory_units"
+                )
+            )
+        ).one()
+        proof = (await connection.execute(text("SELECT * FROM inventory_crypto_state"))).one()
+        audit_count = await connection.scalar(text("SELECT count(*) FROM audit_logs"))
+        await connection.run_sync(upgrade)
+        assert (
+            await connection.execute(
+                text(
+                    "SELECT id, fingerprint, key_version, nonce, ciphertext, created_at "
+                    "FROM inventory_units"
+                )
+            )
+        ).one() == before
+        assert (
+            await connection.execute(text("SELECT * FROM inventory_crypto_state"))
+        ).one() == proof
+        assert await connection.scalar(text("SELECT count(*) FROM audit_logs")) == audit_count
+    assert await inventory.confirm(9001, pending.id)
+    assert (await inventory.stock(9001, "DEMO-1")).summary.available == 2
+
+
+@pytest.mark.asyncio
+async def test_empty_orders_downgrade_and_reupgrade_preserves_inventory(migrated_database):
+    engine = migrated_database
+    await setup_inventory(engine)
+    inventory = inventory_service(engine)
+    action = await inventory.prepare_import(9001, "DEMO-1", b"FAKE-keep", ImportFormat.TXT)
+    await inventory.confirm(9001, action.id)
+    async with engine.begin() as connection:
+        config = Config("alembic.ini")
+
+        def downgrade(sync):
+            config.attributes["connection"] = sync
+            command.downgrade(config, "0005_inventory")
+
+        await connection.run_sync(downgrade)
+        assert await connection.scalar(text("SELECT status FROM inventory_units")) == "AVAILABLE"
+        await connection.run_sync(upgrade)
+    assert (await inventory.stock(9001, "DEMO-1")).summary.available == 1
 
 
 def upgrade(connection: Connection, revision: str = "head") -> None:

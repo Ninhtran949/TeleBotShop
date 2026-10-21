@@ -2,10 +2,10 @@
 
 T02 dùng PostgreSQL **18.6**, SQLAlchemy **2.0.55** Async + asyncpg **0.32.0** và
 Alembic **1.20.0**. T03 thêm identity/access/settings và audit repositories bằng SQLAlchemy
-Core tables; không trả ORM/session ra application. Head hiện tại **`0005_inventory`**;
+Core tables; không trả ORM/session ra application. Head hiện tại **`0006_orders`**;
 `0001_runtime` giữ nguyên, `0002_identity` thêm identity/Owner/audit, `0003_access` thêm
 explicit grants, settings và confirmation. T04 thêm `0004_catalog`; T05 thêm encrypted
-inventory/actions/key verifiers, chưa tạo orders/reservations.
+inventory/actions/key verifiers; T06 thêm orders/items/invoice intents và finite reservations.
 
 | Tables | Contract |
 | --- | --- |
@@ -18,9 +18,11 @@ inventory/actions/key verifiers, chưa tạo orders/reservations.
 | `categories` | UUID/code unique, public name, optional parent FK; trigger giữ code/parent immutable và chỉ cho parent là root. |
 | `products` | UUID/SKU unique immutable, type immutable, category FK, positive BIGINT Stars, public name/description/typed JSONB, HIDDEN/ACTIVE, optional public photo ID và version. |
 | `catalog_actions` | Catalog-owned pending intent; actor FK, kind, preallocated target UUID, bounded typed public JSONB, expected version, expiry/status/completed_at. Create target chưa tồn tại nên target không có FK. |
-| `inventory_units` | Finite UNIQUE_KEY/LICENSE; product FK/type guard, encrypted BYTEA + nonce/version, per-product HMAC fingerprint unique, unique key-version/nonce, AVAILABLE/RETIRED. Identity/ciphertext/fingerprint immutable; chỉ retire, không delete/resurrect. |
+| `inventory_units` | Finite UNIQUE_KEY/LICENSE; product FK/type guard, encrypted BYTEA + nonce/version, per-product HMAC fingerprint unique, unique key-version/nonce, AVAILABLE/RESERVED/RETIRED. Identity/ciphertext/fingerprint immutable; exact reservation item FK/expiry; không delete/resurrect RETIRED. |
 | `inventory_actions` | Actor/product FKs, import hoặc retire, số lượng 1–1000, 10-minute expiry, status/completed_at. Pending import giữ encrypted envelopes JSONB; retire có composite unit/product FK. Apply/cancel clear envelopes. |
 | `inventory_crypto_state` | Singleton chỉ lưu HMAC verifiers của dedup/AES keys theo version, không lưu raw keys. Khóa row khi kiểm tra/register; từ chối đổi dedup, đổi key cùng version hoặc bỏ registered version. |
+| `orders`, `order_items` | Buyer/action unique, immutable quantity-one XTR/public product/price snapshot và finite unit/product FKs; DB-time TTL, guarded unpaid close và retained history. |
+| `invoice_intents` | Một opaque payload/order, durable unique attempt, READY/SENDING/SENT/REJECTED/UNCERTAIN/CANCELLED; no automatic resend, không phải payment receipt. |
 
 ## Local development và test
 
@@ -86,7 +88,7 @@ Chưa có production migration, destructive upgrade, backup/restore hoặc relea
 
 ## Unit of work
 
-Application UoW port có `identity`, `access`, `catalog`, `inventory` repositories và `commit()`;
+Application UoW port có `identity`, `access`, `catalog`, `inventory`, `orders` repositories và `commit()`;
 concrete UoW và AsyncSession ở infrastructure.
 `unit_of_work(engine)` tạo session/transaction mới cho mỗi lần gọi, không share session
 giữa concurrent tasks. Use case phải gọi `commit()` tường minh. Session close rollback
@@ -152,8 +154,36 @@ Stock/low-stock queries chỉ SELECT IDs/status/aggregate counts và product pub
 không đọc ciphertext vào DTO hoặc log. 5 units/products mỗi trang; low-stock chỉ active
 finite SKU có committed AVAILABLE count ≤ configured threshold, không tính pending batch.
 T04→T05 migration giữ products, audit và pending product confirmation hoạt động; không
-auto-seed units. `0001_runtime`–`0004_catalog` giữ nguyên. RESERVED/ALLOCATED, reservation
-Fks và last-key checkout race thuộc T06/T08; chưa tạo placeholder orders để test sớm.
+auto-seed units. `0001_runtime`–`0005_inventory` giữ nguyên. T06 thêm RESERVED/reservation
+FK và last-key checkout race; ALLOCATED/payment-vs-expiry thuộc T08.
+
+## T06 orders và reservations
+
+Head `0006_orders` thêm `orders`, immutable quantity-one `order_items`, `invoice_intents`;
+unit có nullable reservation item/expiry và RESERVED state. Unique buyer/action chống
+double-click; FK item→unit/product và unit→item/unit ràng buộc đúng kho. Giá/type/title/description
+snapshot, buyer/action/expiry và invoice payload không đổi. Mỗi unit chỉ có một current
+reservation; history của nhiều order đã expired vẫn tham chiếu cùng unit khi được bán lại.
+
+Create khóa buyer NO KEY UPDATE rồi product và AVAILABLE unit FOR UPDATE, lấy
+clock_timestamp sau locks và đặt TTL 15 phút. Không SKIP LOCKED khi chọn key cuối:
+lock timeout khác hết hàng. SET LOCAL lock_timeout 2s/statement_timeout 5s giới hạn mỗi
+transaction; không retry external effect từ lỗi DB. Khóa product cũng serialize price/sale edits.
+
+Cancel/expiry khóa order trước, chỉ AWAITING_PAYMENT→EXPIRED, release bằng đúng item ID
+và audit cùng commit. Trigger chặn sửa snapshot, resurrect order, release reservation còn
+AWAITING và retire RESERVED. Expiry khóa theo order ID với SKIP LOCKED, mỗi batch ≤100;
+không release đơn mới chỉ vì unit từng thuộc đơn cũ. T07/T08 phải mở rộng migration/state
+guards cho approval gia hạn/paid allocation; T06 chưa tạo PAID giả hoặc payment tables.
+
+Invoice claim READY→SENDING/attempt commit trước API. Kết quả SENT/REJECTED/UNCERTAIN
+persist trong transaction khác; known reject close/release chỉ nếu order còn unpaid.
+Cancel/expiry trong lúc network chạy không bị kết quả SENT phục hồi order. SENDING quá
+30s được recovery thành UNCERTAIN, không resend; DB failure sau send giữ durable claim.
+`telebotshop expire-orders` chạy một batch expire + một batch recovery, không cần Bot/keys.
+Tests seed historical rows hợp lệ và dùng DB time, không disable trigger hoặc đổi clock.
+T05→T06 giữ ciphertext/proofs/audit/pending imports; empty downgrade/re-upgrade được test.
+Downgrade khi có order history bị từ chối để không tự xóa đơn hoặc restock keys.
 
 ## Health và shutdown
 

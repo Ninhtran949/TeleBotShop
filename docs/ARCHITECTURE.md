@@ -2,7 +2,7 @@
 
 ## Trạng thái và lựa chọn
 
-Đây là baseline thiết kế được SE/SA chọn theo ủy quyền của Owner. T01–T05 đã triển khai toolchain/runtime, HTTP health, PostgreSQL/UoW/migrations, identity/permission/audit, public catalog/admin và encrypted key/license inventory. Telegram customer/admin adapters có development polling, chưa có reservation/checkout/worker/production webhook. Yêu cầu nghiệp vụ gốc ở [`task.md`](../task.md); lý do chọn kiến trúc ở [ADR-0001](adr/0001-modular-monolith.md). Thiết kế chỉ dựng package/file khi một slice cần dùng, không tạo toàn bộ cây trống.
+Đây là baseline thiết kế được SE/SA chọn theo ủy quyền của Owner. T01–T06 đã triển khai toolchain/runtime, HTTP health, PostgreSQL/UoW/migrations, identity/permission/audit, public catalog/admin, encrypted inventory và finite order/reservation/expiry/invoice intents. Telegram customer/admin adapters có development polling; customer Buy chưa bật, pre-checkout/receipt/worker/production webhook chưa có. Yêu cầu nghiệp vụ gốc ở [`task.md`](../task.md); lý do chọn kiến trúc ở [ADR-0001](adr/0001-modular-monolith.md). Thiết kế chỉ dựng package/file khi một slice cần dùng, không tạo toàn bộ cây trống.
 
 Chọn **modular monolith**, một codebase/image, PostgreSQL là nguồn dữ liệu bền vững. Production dự kiến có hai process từ cùng image: HTTP ingress và fulfillment worker. Local polling chỉ là adapter development thay thế webhook, không chạy cùng webhook cho cùng bot.
 
@@ -47,7 +47,7 @@ src/telebotshop/
       models/                 # SQLAlchemy models; tách khỏi domain
       repositories/           # SQL/query implementations
       uow.py                  # AsyncSession/transaction implementation
-    payments/                 # Telegram Stars adapter
+    telegram/                 # ingress guard/logging và Stars invoice adapter
     delivery/                 # send message/document adapters
     crypto.py                 # AES-GCM/HMAC adapter; settings ở config.py
 migrations/                   # Alembic; thêm dần cùng slice cần schema
@@ -67,6 +67,15 @@ Polling kiểm tra schema/Owner rồi từ chối existing webhook, không delet
 Bot client/engine đóng cả khi exception/cancellation; xử lý update tuần tự, chưa có worker.
 HTTP factory vẫn nhận readiness callable/lifespan, không import concrete DB adapter.
 Schema/transaction contract ở [DATABASE](DATABASE.md), controls/limits ở [SECURITY](SECURITY.md).
+
+T06 thêm OrderService/InvoiceService, orders/invoices ports và SQL order/item/invoice tables.
+Create khóa buyer (NO KEY UPDATE) → product → AVAILABLE unit; cancel/expiry/invoice khóa
+order trước invoice/unit. Một UoW ghi snapshot + reservation + intent + audit. InvoiceService
+commit claim trước gọi sender, đóng UoW rồi mới network, sau đó persist typed outcome trong
+UoW khác. Không có DB session sống qua API call. `StarsInvoiceSender` nằm cạnh Telegram
+adapters hiện có; chỉ composition root/tests được wire concrete implementations.
+`expire-orders` là entrypoint một batch DB-only, chưa có process scheduler. Public polling
+giữ nguyên đến khi T07/T08 có validation và durable receipt; không có flag bỏ qua gate đó.
 
 Domain identity/access/admin DTO là dataclass/enum thuần Python; application services sở
 hữu validation, permission và transaction. Repositories dùng SQLAlchemy Core metadata,

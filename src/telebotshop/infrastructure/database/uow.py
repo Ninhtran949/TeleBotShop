@@ -8,6 +8,7 @@ from telebotshop.infrastructure.database.repositories.access import SqlAccessRep
 from telebotshop.infrastructure.database.repositories.catalog import SqlCatalogRepository
 from telebotshop.infrastructure.database.repositories.identity import SqlIdentityRepository
 from telebotshop.infrastructure.database.repositories.inventory import SqlInventoryRepository
+from telebotshop.infrastructure.database.repositories.orders import SqlOrderRepository
 
 
 class SqlAlchemyUnitOfWork(UnitOfWork):
@@ -17,6 +18,7 @@ class SqlAlchemyUnitOfWork(UnitOfWork):
         self.access = SqlAccessRepository(session)
         self.catalog = SqlCatalogRepository(session)
         self.inventory = SqlInventoryRepository(session)
+        self.orders = SqlOrderRepository(session)
 
     async def commit(self) -> None:
         await self.session.commit()

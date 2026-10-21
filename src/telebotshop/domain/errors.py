@@ -16,3 +16,7 @@ class InvalidAction(Exception):
 
 class CatalogNotFound(Exception):
     pass
+
+
+class OutOfStock(Exception):
+    pass

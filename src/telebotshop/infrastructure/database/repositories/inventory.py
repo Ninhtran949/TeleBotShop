@@ -74,6 +74,9 @@ def stock_query() -> Select:
             .filter(inventory_units.c.status == InventoryState.AVAILABLE)
             .label("available"),
             func.count()
+            .filter(inventory_units.c.status == InventoryState.RESERVED)
+            .label("reserved"),
+            func.count()
             .filter(inventory_units.c.status == InventoryState.RETIRED)
             .label("retired"),
         )
@@ -86,6 +89,7 @@ def stock_query() -> Select:
             products.c.sku,
             products.c.sale_state,
             func.coalesce(counts.c.available, 0).label("available"),
+            func.coalesce(counts.c.reserved, 0).label("reserved"),
             func.coalesce(counts.c.retired, 0).label("retired"),
         )
         .select_from(products.outerjoin(counts, counts.c.product_id == products.c.id))
@@ -98,6 +102,7 @@ def stock_summary(row: RowMapping, threshold: int) -> StockSummary:
         row["id"],
         row["sku"],
         row["available"],
+        row["reserved"],
         row["retired"],
         row["sale_state"] == SaleState.ACTIVE and row["available"] <= threshold,
     )

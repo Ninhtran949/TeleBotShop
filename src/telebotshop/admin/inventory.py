@@ -104,7 +104,8 @@ def confirmation(action: InventoryAction) -> InlineKeyboardMarkup:
 def stock_view(stock: StockPage) -> tuple[str, InlineKeyboardMarkup]:
     summary, page = stock.summary, stock.units
     text = (
-        f"Kho {summary.sku}\nSẵn có: {summary.available} · Đã retire: {summary.retired}"
+        f"Kho {summary.sku}\nSẵn có: {summary.available} · Đang giữ: {summary.reserved}"
+        f" · Đã retire: {summary.retired}"
         + ("\nCảnh báo: tồn kho thấp." if summary.low_stock else "")
         + f"\nTrang {page.page + 1}\n"
     )

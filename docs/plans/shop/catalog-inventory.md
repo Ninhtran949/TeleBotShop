@@ -1,6 +1,6 @@
 # Spec: catalog-inventory
 
-Status: T04 public catalog/admin và T05 encrypted finite inventory/import/retire/low-stock đã triển khai; reservation/checkout/fulfillment và nonfinite secret payload tiếp tục theo T06/T09/T10. Chưa nghiệm thu toàn CI-01..06 hoặc live Telegram. Nguồn: `task.md` §§3,4,8,10. Depends on: [identity-access](identity-access.md).
+Status: T04 public catalog/admin, T05 encrypted finite inventory và T06 finite reservation/expiry đã triển khai; public checkout/payment/fulfillment và nonfinite secret payload tiếp tục theo T07–T10. Chưa nghiệm thu toàn CI-01..06 hoặc live Telegram. Nguồn: `task.md` §§3,4,8,10. Depends on: [identity-access](identity-access.md).
 
 ## Catalog và product contracts
 
@@ -30,9 +30,10 @@ new product hidden, Owner-delegated `catalog.manage` + confirmation/audit cho wr
 CatalogService cung cấp public categories/products/product và protected admin/prepare/
 confirm/cancel use cases. Pagination 5 items/page (0–9999), search literal 1–80 ký tự;
 private router giữ actor-bound bounded navigation parameters, không cache business data.
-Stock/low-stock chỉ đọc qua protected InventoryService; chưa có order API hoặc nút mua.
+Stock/low-stock chỉ đọc qua protected InventoryService; OrderService là internal T06 use case,
+chưa có order transport API hoặc nút mua.
 Chi tiết command/schema/limits tại [README](../../../README.md), [DATABASE](../../DATABASE.md)
-và [SECURITY](../../SECURITY.md); CI-01 stock/order gating vẫn thuộc T05/T06.
+và [SECURITY](../../SECURITY.md); CI-01 finite stock/order gating có ở T06, nonfinite còn T10.
 
 ## Inventory và reservation
 
@@ -50,11 +51,12 @@ CSV/TXT từ staff có quyền, bounded input (baseline tối đa 1 MiB và 1.00
 
 Unique constraint bắt cả hai import đồng thời vượt qua application precheck. Mọi import/sửa kho/giá có audit metadata, không có plaintext key. Encryption errors fail closed, không fallback lưu plaintext.
 
-T05 contract hiện tại: InventoryService prepare_import/prepare_retire/confirm/cancel/stock/
+T05 inventory contract: InventoryService prepare_import/prepare_retire/confirm/cancel/stock/
 low_stock; current inventory.manage trong UoW và handler. Confirmation actor/target-bound,
 10 phút; pending import chỉ giữ sealed envelopes, chưa AVAILABLE; apply/cancel clear
 envelopes, applied không thể cancel để undo. Unit identity/material immutable, không delete;
-retire chỉ AVAILABLE→RETIRED. RESERVED/ALLOCATED và order FKs thuộc T06/T08.
+retire chỉ AVAILABLE→RETIRED. T06 có RESERVED với order item FK/expiry; stock trả cả reserved
+count, reserved unit không retire. ALLOCATED và payment-vs-expiry thuộc T08.
 CSV header chính xác `key` hoặc `license_key` theo type; TXT một key mỗi dòng; UTF-8/BOM,
 LF/CRLF, key ≤4096 UTF-8 bytes, không control/blank, không trim/normalize material. Toàn batch
 parse trước commit; error chỉ row/code. Download capped memory-only qua SDK, không temp file.
@@ -73,7 +75,8 @@ Không có decrypt/export use case trước authorized entitlement; old-version/
 - **CI-05:** Expiry chạy cạnh PAID không release allocation; retire không xóa mất entitlement lịch sử.
 - **CI-06:** Tamper ciphertext/sai AAD/sai key bị từ chối; permitted entitlement mới được decrypt; low-stock alert không dùng secret payload.
 
-Verification T04/T05: unit metadata/key/license/parser/AEAD/settings/UX; PostgreSQL thật cho
+Verification T04–T06: unit metadata/key/license/parser/AEAD/settings/UX; PostgreSQL thật cho
 import/retire races, constraints và rollback; mocked Telegram dispatcher với DB thật, download/
-send ngoài transaction. Allocation/expiry/payment-vs-stock và entitlement decryption còn ở
-T06/T08/T09; tests hiện tại không thay thế các gates đó. Evidence tại implementation plan.
+send ngoài transaction, finite last-key/double-click/expiry/cancel races và snapshot rollback.
+Allocation/payment-vs-stock và entitlement decryption còn T08/T09; tests hiện tại không
+thay thế các gates đó. Evidence tại implementation plan.

@@ -1,6 +1,6 @@
 # Spec: orders-payments
 
-Status: design baseline; chưa triển khai. Nguồn: `task.md` §§3,5,8,11. Depends on: [identity-access](identity-access.md), [catalog-inventory](catalog-inventory.md). Quyết định an toàn: [ADR-0002](../../adr/0002-payment-and-fulfillment-safety.md).
+Status: T06 finite order/reservation/expiry và durable invoice intent/Stars adapter đã triển khai; public Buy, pre-checkout, receipt, fulfillment/refund còn T07–T13. Chưa nghiệm thu toàn OP hoặc live Stars. Nguồn: `task.md` §§3,5,8,11. Depends on: [identity-access](identity-access.md), [catalog-inventory](catalog-inventory.md). Quyết định an toàn: [ADR-0002](../../adr/0002-payment-and-fulfillment-safety.md).
 
 ## Order và invoice
 
@@ -9,6 +9,17 @@ Baseline checkout một active product, quantity 1 và một order item; không 
 `create_order` idempotent theo buyer + checkout action key; cùng action không tạo hai order/reservation/invoice intents. Lock/reserve unit cho finite stock, ghi AWAITING_PAYMENT + invoice intent trước external call; Telegram invoice gửi ngoài transaction. Failure/timeout của invoice không được ghi PAID hay bỏ receipt đến sau. Trạng thái invoice/attempt giúp phân biệt cần xử lý và không vô tình gửi lại cùng action.
 
 Reservation TTL 15 phút theo DB time; pre-checkout approval gia hạn tới ít nhất 15 phút từ approval. Khách cancel/expire trước payment có thể release qua guarded transaction. Giá catalog đổi sau invoice không đổi snapshot; reprice phải tạo order/action mới, không tự tính lại số tiền callback.
+
+T06 thực hiện UNIQUE_KEY/LICENSE, quantity 1; loại khác fail-closed tới T10. `0006_orders`
+ghi trực tiếp AWAITING_PAYMENT trong atomic create, chưa cần persisted PENDING state.
+Invoice READY→SENDING có durable attempt trước network; SENT không mark PAID, known
+REJECTED close unpaid order, UNCERTAIN không auto-resend. `expire-orders` xử lý tối đa
+100 due orders và 100 SENDING claims quá 30s mỗi lần; không scheduler tự chạy.
+Đơn/payload history không xóa sau expiry để receipt T08 còn đối chiếu được. Test Telegram
+mock kiểm tra request XTR/one price/empty provider token/nonempty start parameter theo
+[sendInvoice](https://core.telegram.org/bots/api#sendinvoice); forwarded invoice phải mở
+lại bot thay vì giữ Pay button. Pre-checkout vẫn phải kiểm tra buyer, không dựa vào tham số đó.
+T06 chưa wire Buy/invoice vào polling trước khi T07/T08 có intake an toàn.
 
 ## Pre-checkout contract
 

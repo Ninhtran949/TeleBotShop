@@ -4,10 +4,11 @@ Shop Telegram bán tài nguyên số có quyền phân phối, thanh toán Stars
 Trạng thái và task đang được thực hiện: [PROJECT](docs/PROJECT.md),
 [implementation plan](docs/plans/shop/implementation-plan.md).
 
-T01–T05 đã có toolchain/runtime, identity/permissions/audit, catalog PostgreSQL với năm loại
+T01–T06 đã có toolchain/runtime, identity/permissions/audit, catalog PostgreSQL với năm loại
 metadata công khai, admin product maintenance và kho key/license mã hóa, import atomic,
-retire/low-stock có phân quyền. Chưa có reservation/checkout/order/payment hoặc production
-webhook; Telegram API trong tests là mock.
+retire/low-stock có phân quyền và order/reservation/expiry cho key/license. Durable invoice
+intent và Stars adapter đã có; customer Buy còn chờ pre-checkout/receipt T07/T08. Chưa có
+payment intake, fulfillment hoặc production webhook; Telegram API trong tests là mock.
 
 ## Môi trường development
 
@@ -65,6 +66,19 @@ không mở network. `.env.example` chỉ là mẫu; muốn dùng local `.env`, 
 `/health/live` trả 200 khi server chạy. `/health/ready` trả 200 khi DB/schema revision đúng,
 503 khi thiếu migration, sai revision, DB lỗi hoặc probe timeout. Startup không tự migrate.
 Chi tiết isolation, transaction và shutdown: [DATABASE](docs/DATABASE.md).
+
+Operator có thể chạy một batch tối đa 100 đơn hết hạn và 100 invoice claims gián đoạn:
+
+```text
+uv run --no-sync telebotshop expire-orders
+```
+
+Lệnh cần DATABASE_URL/schema head `0006_orders`, không cần BOT_TOKEN/OWNER_ID hoặc
+inventory keys; không gửi Telegram. TTL reservation 15 phút theo DB time. Claim SENDING
+quá 30 giây chuyển UNCERTAIN, giữ attempt và không tự gửi lại. Chạy lặp theo lịch vận hành
+khi có checkout; T06 chưa có scheduler/worker hoặc thao tác tự reconcile/resend invoice.
+Invoice sent/uncertain không chứng minh đã thanh toán; order/payload history vẫn được giữ
+sau cancel/expiry để payment intake ở T08 xử lý receipt tới trễ.
 
 ## Development polling và quyền Owner
 
@@ -160,7 +174,7 @@ hết hạn logic sau 10 phút hoặc mất khi restart/eviction; mở lại `/s
 
 Product metadata vẫn chỉ là dữ liệu công khai. Private key/license nằm trong inventory mã hóa
 của T05; file/reusable/manual payload thuộc T10. Không tự fetch URL, không hiển thị số stock
-giả hoặc nhận đơn; reservation/checkout thuộc T06.
+giả hoặc nhận đơn qua polling; finite reservation có ở T06, public Buy chờ T07/T08.
 Ảnh/catalog thông báo trạng thái thật hiện có, chưa là Telegram external acceptance.
 `APP_ENV=test` không tự đổi Bot API sang Stars test server; setup chính thức thuộc T14.
 

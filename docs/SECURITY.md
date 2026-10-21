@@ -1,4 +1,4 @@
-# Security controls — T03/T04/T05
+# Security controls — T03–T06
 
 Phạm vi hiện có: identity, permission, audit, public catalog/admin, encrypted key/license
 inventory và development polling. Đây là controls đã
@@ -37,8 +37,8 @@ form là công khai; staff không được nhập secret vào description/instru
 cho fields của từng type, SQL CHECK chặn extra/missing/wrong-type fields; điều này không
 tự xác định một đoạn text tự do có bí mật do người vận hành nhập nhầm hay không.
 Photos chỉ dùng reference từ photo Update hoặc clear; không fetch arbitrary URLs/paths.
-Catalog ACTIVE là visibility, không tự chứng minh đủ stock/payload để checkout. T05 chưa
-có checkout/invoice hoặc fulfillment, không invent stock numbers hoặc nhận thanh toán.
+Catalog ACTIVE là visibility, không tự chứng minh đủ stock/payload để checkout. T06 chỉ
+reserve finite AVAILABLE units; public Buy/payment intake/fulfillment vẫn chờ task sở hữu.
 
 Inventory secret payloads là dữ liệu nhạy cảm; stock views chỉ trả IDs/status/counts.
 Không có admin/customer decrypt hoặc bulk export use case trong T05. Crypto adapter có
@@ -63,6 +63,19 @@ webhook đang cấu hình và không xóa/drop updates. Process xử lý tuần 
 session và DB engine đóng qua context/finally kể cả lỗi/cancellation. HTTP health độc lập
 với BOT_TOKEN/OWNER_ID/inventory keys; token chỉ đọc khi operator chủ động chạy polling. Automated tests
 dùng fake token và mock Telegram transport, không gửi messages hoặc đổi tài khoản thật.
+
+T06 customer order use cases kiểm tra registered buyer từ DB; UUID action/order/product
+không cấp quyền. Một action chỉ giữ một product; callback không có authority về giá/quantity.
+Checkout không đọc/decrypt ciphertext; inventory views đếm riêng AVAILABLE/RESERVED/RETIRED.
+Owner check bảo vệ get/cancel/send dù caller bỏ qua handler. TTL/lock budgets dùng DB time,
+guarded release chỉ chạm exact reservation; catalog price edits không sửa order snapshot.
+
+Invoice adapter chỉ gửi private buyer ID, snapshot public text/Stars, opaque payload và
+nonempty start_parameter. Không xin name/email/phone/shipping, không dùng payment provider
+ngoài Stars. SDK error/body/token không đi vào DTO/log; known rejection khác unknown send.
+SENDING/UNCERTAIN không tự retry, kể cả crash hoặc mất commit sau send. Claims cũ được
+DB-only maintenance đánh dấu UNCERTAIN, giữ history chờ reconciliation. Chưa có permissioned
+invoice resend/reconcile command hoặc public Buy trước T07/T08, không có live payment intake.
 
 Giới hạn cần hoàn thiện ở task tương ứng:
 

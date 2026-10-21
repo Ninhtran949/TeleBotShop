@@ -13,11 +13,12 @@ Mục tiêu từ [`task.md`](../task.md): shop Telegram bán tài nguyên số �
 | T03: identity/Owner, explicit permissions, audit và Telegram admin/settings foundation | Đã triển khai và kiểm chứng local: schema head `0003_access`, `/start`/private profile, `/admin`, Owner grant/revoke/settings confirmation và development polling. Telegram API mock; PostgreSQL thật. |
 | T04: catalog, public metadata năm loại và admin product maintenance | Đã triển khai và kiểm chứng local: schema head `0004_catalog`, category/subcategory, browse/search/pagination, staff tạo/sửa sản phẩm/giá/trạng thái/ảnh với confirmation, current permission và audit. Chỉ metadata công khai; chưa nhận đơn. |
 | T05: encrypted key/license inventory, import/retire/stock/low-stock | Đã triển khai và kiểm chứng local: head `0005_inventory`, AES-GCM/HMAC, versioned key guard, atomic TXT/CSV import, current inventory.manage, durable confirmation/audit và stock pagination. Download/send Telegram mock ngoài transaction, PostgreSQL thật. |
-| Reservation/orders/payments, production webhook/worker, CI, production image/deployment | Chưa triển khai; các phần tương ứng trong cây kiến trúc là cấu trúc đích. |
+| T06: finite orders/reservations, expiry/cancel, durable invoice intent | Đã triển khai và kiểm chứng local: head `0006_orders`, buyer/action idempotency, immutable quantity-one price snapshot, 15-minute DB TTL, guarded release, DB-only maintenance và mocked Stars invoice outcomes. |
+| Public Buy, pre-checkout/payments, production webhook/worker, CI, production image/deployment | Chưa triển khai; các phần tương ứng trong cây kiến trúc là cấu trúc đích. |
 | BotFather/test bot, live credentials, backup/restore | Chưa cấu hình hoặc kiểm chứng; local PostgreSQL dùng credentials giả tách biệt. |
-| Git | Branch `dev`; T01–T04 đã có commit, HEAD `9492004` khi bắt đầu T05; Git sạch. T05 chưa stage/commit/push; không sửa index/history hoặc discard work. |
+| Git | Branch `dev`, HEAD `9492004`; T05 đã staged khi bắt đầu T06, giữ nguyên index. T06 ở working tree, không stage/commit/push hoặc discard work. |
 
-Trạng thái và bằng chứng của từng slice nằm trong [implementation plan](plans/shop/implementation-plan.md). T01–T05 hoàn tất; **T06** là task tiếp theo, còn pending và cần được giao riêng. Không tự chạy toàn roadmap khi chỉ được giao một task.
+Trạng thái và bằng chứng của từng slice nằm trong [implementation plan](plans/shop/implementation-plan.md). T01–T06 hoàn tất; **T07** là task tiếp theo, còn pending và cần được giao riêng. Không tự chạy toàn roadmap khi chỉ được giao một task.
 
 ## Đọc theo nhiệm vụ
 
@@ -57,6 +58,7 @@ Runtime và migration commands đã tồn tại (export environment trước, th
 uv run --no-sync alembic upgrade head
 uv run --no-sync telebotshop
 uv run --no-sync telebotshop polling
+uv run --no-sync telebotshop expire-orders
 ```
 
 PostgreSQL gate D, sau khi start disposable test service và export `APP_ENV=test`/`TEST_DATABASE_URL` theo README:
@@ -74,17 +76,20 @@ python -B -m unittest discover -s tests -p test_harness.py -v
 
 HTTP không cần bot secrets. Polling cần BOT_TOKEN/OWNER_ID và inventory key settings trong environment bảo vệ, chỉ
 development/test, từ chối existing webhook; hướng dẫn trong README. Không chạy command
-polling thật từ các task code/test T03–T05.
+polling thật từ các task code/test T03–T06. `expire-orders` chạy một batch DB-only,
+không Bot/keys; hướng dẫn và giới hạn tại README/DATABASE.
 
-T05 verification: **256 unit/contract/architecture**, **86 PostgreSQL integration**, **6 harness**
+T06 verification: **297 unit/contract/architecture**, **127 PostgreSQL integration**, **6 harness**
 pass; lock/sync, lint/format, architecture, build/isolated runtime wheel và dependency audit
-pass. Tests bao gồm T03/T04 regressions, bounded typed inventory import, AEAD/tamper/old keys,
-missing/changed key guard, current permission/revoke during download, two-connection duplicate
-import, retire/replay/audit/deferred rollback, T04→T05 preservation và metadata drift. Mọi
-mocked Telegram download/send trong end-to-end flow assert nằm ngoài DB transaction.
+pass. Wheel có 65 source modules khớp working tree; isolated runtime import với poisoned
+settings/no network/no pytest và native AES-GCM pass. Test giữ T03–T05 regressions, thêm
+two-physical-connection last-key/double-click, price snapshot, expiry/cancel/reallocation,
+invoice uncertain/cancel/post-send commit failure, bounded maintenance, T05 preservation
+và metadata drift. Ba mutation probes ownership/audit/resend bị test bắt, source restored.
+Mocked Telegram download/send trong end-to-end flow assert nằm ngoài DB transaction.
 Chưa có type checker, hosted CI, Telegram test/live hoặc production validation; scope hiện
-có và giới hạn ở [SECURITY](SECURITY.md). Không suy ra reservation/checkout/delivery hoặc
-external Telegram acceptance từ inventory và passing mocked Telegram tests. Backup/restore
+có và giới hạn ở [SECURITY](SECURITY.md). Public Buy/pre-checkout/receipt/paid allocation
+và delivery chưa có; passing mocked invoice tests không thay live Stars. Backup/restore
 keys, nonfinite payloads và entitled decrypt vẫn theo task sở hữu.
 
 ## Điều kiện cần Owner cung cấp trước khi mở bán

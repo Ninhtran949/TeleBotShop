@@ -22,6 +22,7 @@ from telebotshop.application.services.access import AccessService
 from telebotshop.application.services.catalog import CatalogService
 from telebotshop.application.services.identity import IdentityService
 from telebotshop.application.services.inventory import InventoryService
+from telebotshop.application.services.orders import OrderService
 from telebotshop.bot.routers.catalog import create_catalog_router
 from telebotshop.bot.routers.identity import create_customer_router
 from telebotshop.domain.errors import OwnerConfigurationError
@@ -55,6 +56,26 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
 class PollingStartupError(Exception):
     pass
+
+
+class ExpiryStartupError(Exception):
+    pass
+
+
+async def run_expiry(settings: Settings) -> tuple[int, int]:
+    engine = create_async_engine(
+        settings.database_url.get_secret_value(),
+        hide_parameters=True,
+        pool_pre_ping=True,
+        connect_args={"timeout": 2},
+    )
+    try:
+        if not await database_ready(engine):
+            raise ExpiryStartupError("Database unavailable or schema outdated")
+        orders = OrderService(partial(unit_of_work, engine))
+        return await orders.expire(), await orders.recover_invoices()
+    finally:
+        await engine.dispose()
 
 
 def create_dispatcher(
@@ -120,7 +141,9 @@ async def run_polling(settings: BotSettings, inventory_settings: InventorySettin
 
 def main() -> int:
     parser = argparse.ArgumentParser(prog="telebotshop")
-    parser.add_argument("mode", nargs="?", choices=("http", "polling"), default="http")
+    parser.add_argument(
+        "mode", nargs="?", choices=("http", "polling", "expire-orders"), default="http"
+    )
     mode = parser.parse_args().mode
     try:
         settings = BotSettings() if mode == "polling" else Settings()
@@ -128,6 +151,16 @@ def main() -> int:
     except ValidationError:
         print("Invalid application configuration", file=sys.stderr)
         return 2
+    if mode == "expire-orders":
+        try:
+            expired, uncertain = asyncio.run(run_expiry(settings))
+        except (ExpiryStartupError, SQLAlchemyError, OSError, TimeoutError):
+            print("Order maintenance unavailable", file=sys.stderr)
+            return 1
+        except KeyboardInterrupt:
+            return 130
+        print(f"Expired orders: {expired}; uncertain invoices: {uncertain}")
+        return 0
     if isinstance(settings, BotSettings):
         assert inventory_settings is not None
         try:

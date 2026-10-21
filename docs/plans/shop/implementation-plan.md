@@ -1,6 +1,6 @@
 # Implementation plan và task ledger
 
-Status: **T01–T05 hoàn tất; T06–T18 pending**. Owner giao task tiếp theo (T05) ngày 2026-10-21. Git sạch khi bắt đầu, HEAD `9492004` đã chứa T04; T05 chưa stage/commit/push. Dừng trước T06.
+Status: **T01–T06 hoàn tất; T07–T18 pending**. Owner giao task tiếp theo (T06) ngày 2026-10-21. T05 đang staged, HEAD `9492004`; index giữ nguyên, T06 ở working tree. Không stage/commit/push hoặc tự mở rộng sang T07.
 
 ## Cách nhận và bàn giao task
 
@@ -245,7 +245,89 @@ Check scope: **H** = hai harness commands trong PROJECT. **C** = applicable lock
 
 ## Phase 2
 
-- [ ] **T06 — Create order, reserve và expiry.** Depends: T05. Spec: OP-01, OP-02, OP-07; CI-02, CI-05. Scope: order/item snapshots và reservation FK migration, action idempotency, finite-stock reservation, invoice intent/Stars adapter, guarded expiry/cancel. Acceptance: quantity-one checkout/price snapshot; no network under DB lock; double-click/last-key/expiry races giữ stock đúng. Verify: C + D, mocked invoice outcomes gồm uncertain và price change, hai independent DB connections.
+- [x] **T06 — Create order, reserve và expiry.** Depends: T05. Spec: OP-01, OP-02, OP-07; CI-02, CI-05. Scope: order/item snapshots và reservation FK migration, action idempotency, finite-stock reservation, invoice intent/Stars adapter, guarded expiry/cancel. Acceptance: quantity-one checkout/price snapshot; no network under DB lock; double-click/last-key/expiry races giữ stock đúng. Verify: C + D, mocked invoice outcomes gồm uncertain và price change, hai independent DB connections.
+
+  - [x] **T06.a — Quantity-one contracts và atomic create/reserve.** Domain order/invoice states/read DTOs, application-owned ports/use cases, SQLAlchemy order/item/invoice tables và migration `0006_orders`. Buyer + action UUID unique; immutable public price/type/title snapshot; same action đổi product bị chặn. Customer identity từ DB; lock buyer/product rồi AVAILABLE unit, FK ràng buộc unit↔item/product. TTL 15 phút theo DB time, bounded lock/statement timeout; contention không giả hết hàng. Không đọc/decrypt inventory payload.
+  - [x] **T06.b — Guarded cancel/expiry và inventory callers.** Chỉ AWAITING_PAYMENT → EXPIRED rồi release đúng reservation của order; order trước inventory lock, audit cùng commit. RESERVED là state thật; stock read/render bổ sung reserved count, retire không chạm reserved unit. Expiry batch bounded, locks theo ID, idempotent/cross-buyer/expiry-vs-reallocation tests; không giả PAID/payment tables để claim T08 race sớm.
+  - [x] **T06.c — Durable invoice intent và Stars adapter.** Claim READY→SENDING/attempt trước network, typed SENT/REJECTED/UNCERTAIN outcome sau network, không auto-resend SENDING/UNCERTAIN. Snapshot XTR/one price/provider token rỗng/nonempty start parameter; body không có inventory/PII tùy ý. Crash/stale claims chuyển uncertain qua bounded recovery; known rejection close/release unpaid order an toàn. Telegram API mock, pool assertions và commit/cancel/network failure tests. Polling chưa mở Buy/invoice trước pre-checkout + durable receipt T07/T08.
+  - [x] **T06.d — Runtime maintenance/review/gates/docs.** Composition root/UoW/migrations/callers/fixtures, explicit `expire-orders` CLI chạy một batch expire/recover, không Bot hoặc encryption key dependency. C + D + H; T05 upgrade preservation, metadata drift, mutation probes, build/wheel/native runtime smoke/audit và final docs/status. Dừng trước T07; không real Stars/Telegram/production writes.
+
+  Threat/failure focus: forged buyer/product/price/action, repeated/different-product action, last-key competition/retire/timeout, partial order/item/unit/invoice/audit commit, cross-owner cancel, old expiry sau reallocation, invoice send-vs-cancel/expiry, crash/uncertain/lost post-send commit và blind resend. T06 chỉ finite UNIQUE_KEY/LICENSE; nonfinite secret payload/availability còn T10. Giữ receipt-ready order/payload history khi expired/rejected; không mark PAID từ invoice result. Customer checkout activation đợi T07/T08, tránh invoice khi chưa có payment intake.
+
+  Hoàn tất 2026-10-21. Thay đổi: `domain/models/orders.py`, orders/invoices ports và
+  OrderService/InvoiceService; SQL orders repository/Core metadata, `0006_orders`, UoW/schema/
+  Alembic wiring; inventory RESERVED/count/render; `bootstrap.py` DB-only maintenance CLI.
+  Tests mới: `tests/orders.py`, unit order/expiry CLI, invoice SDK contract và PostgreSQL
+  order/invoice suites; bổ sung migration preservation/downgrade. README, PROJECT,
+  ARCHITECTURE, CONVENTIONS, DATABASE, SECURITY và capability specs cập nhật cùng slice.
+  Không thêm dependency/config/feature flag; migration `0001`–`0005` giữ nguyên.
+
+  TDD evidence: checkout suite fail import OutOfStock/order module trước implementation;
+  invoice contract/service fail missing adapters/services; expiry CLI fail missing entrypoint.
+  Sau implementation, focused suites green rồi chạy final gates dưới đây (đều exit 0):
+
+  ```text
+  uv lock --check                                    # 50 packages resolved
+  uv sync --locked --no-build                        # 49 packages checked, lock unchanged
+  uv run --no-sync ruff check .                      # pass
+  uv run --no-sync ruff format --check .             # 151 owned Python files
+  uv run --no-sync pytest tests/unit tests/contract tests/architecture -q --tb=short
+                                                     # 297 passed, 15.96s
+  uv run --no-sync python scripts/check_architecture.py
+  uv build --no-sources                              # sdist + wheel
+  uv run --no-sync pytest tests/integration -q --tb=short
+                                                     # 127 passed, 58.63s, PostgreSQL 18.6
+  python scripts/verify_harness.py                   # six skills/hashes/references intact
+  python -B -m unittest discover -s tests -p test_harness.py -v
+                                                     # 6 passed, Python 3.11.9
+  uv audit --locked                                 # 49 deps, no known advisories/adverse status
+  ```
+
+  Runtime CPython 3.12.15, uv/uv_build 0.13.4, Ruff 0.17.1, Pytest 9.1.1; dependencies
+  giữ nguyên T05. D dùng explicit allowlisted TEST_DATABASE_URL/APP_ENV=test, per-test
+  owned schemas/markers. Last-key test giữ product lock, xác nhận **hai backend PIDs**
+  khác nhau trong pg_locks trước release barrier; double-click chỉ một order/intent/reservation.
+  Price edit giữ snapshot; hidden/unregistered/nonfinite fail-closed; LICENSE reserve thật.
+  Cancel/expiry races, old expiry sau reallocation, retire reserved, bounded lock timeout,
+  immediate SQL guards và deferred audit/commit failure giữ stock/order/audit atomic.
+  Expiry/recovery dùng valid historical rows + DB time, không sửa clock/disable triggers.
+  T05 upgrade giữ ciphertext/proof/pending import/audit; metadata drift rỗng, empty downgrade/
+  re-upgrade pass; downgrade có order history bị từ chối.
+
+  Mocked Stars request kiểm XTR/one integer price/blank provider/nonempty start parameter,
+  bounded text/10s transport/no PII request. Known API reject khác network/server/decode/timeout
+  uncertain. Claim committed trước send và pool checkout = 0 ở send; concurrent/cancel/expiry/
+  task interruption/post-send commit failure không resend hoặc mark PAID. Recovery đánh dấu
+  stale SENDING thành UNCERTAIN, không gọi network. Real DB maintenance entrypoint pass.
+
+  Self-review theo code-review-and-quality/security-and-hardening: đã đọc connected paths,
+  ownership/locks/FKs/immutable snapshots, transaction/audit rollback, secret redaction và
+  durable external-effect boundaries; không còn Critical/High trong T06 scope. Ba mutation
+  probes invert buyer ownership, bỏ create audit, bỏ READY resend guard: mỗi probe có đúng
+  một focused test fail; restore source byte-for-byte rồi final C/D green.
+
+  Wheel gate theo README: `uv export --locked --no-dev --no-emit-project --format requirements-txt`,
+  fresh isolated venv, `uv pip install --offline --require-hashes --no-build` runtime deps,
+  `uv pip install --no-index --no-deps` wheel. **65 wheel source files** khớp working tree;
+  sdist/wheel không có tools/cache/secrets. Python -I import cả 65 modules với poisoned
+  settings, network bị chặn, không pytest; native AES-GCM roundtrip pass.
+  Native uv advisory audit là experimental; không thay source/container/release assessment.
+
+  Final static checks: **35 T06 files (15 new)**, 9 Markdown files/48 local links,
+  balanced fences, `git diff --check` exit 0; không trailing whitespace kể cả new files.
+  SHA-256 của staged binary diff khớp lúc bắt đầu T06; protected files không đổi.
+
+  Cleanup: verify project/service/absolute workspace labels, query **0 tbs_test_* schemas,
+  0 other test connections**, rồi stop riêng postgres-test đã start cho T06; không xóa volume
+  hoặc dừng Docker Desktop. T05 staged content/index giữ nguyên; không stage/commit/push.
+
+  Giới hạn: OP-01/02/07 và CI-02/05 chỉ trong finite pre-payment T06 scope; pre-checkout,
+  approval extension, receipt/PAID allocation, payment-vs-expiry và entitlement vẫn T07–T10.
+  Public polling chưa Buy/invoice trước T07/T08; không mở live payment bằng flag. Nonfinite
+  secret availability còn T10. Maintenance là một batch operator command, chưa scheduler;
+  uncertain invoice không có automatic/manual resend command, cần reconciliation evidence.
+  Chưa Telegram test/live, hosted CI, Linux/macOS, production image/deploy hoặc backup/restore.
+  **T06 hoàn tất; T07 pending, cần được giao riêng.**
 
 - [ ] **T07 — Pre-checkout boundary.** Depends: T06. Spec: OP-02,07. Scope: Telegram pre-checkout parsing/response + application validation/serialized approval. Acceptance: owner/currency/amount/payload/status/stock checks; duplicate query idempotent, query khác không double-approve; bounded DB/API deadline đáp ứng giới hạn Telegram. Verify: C + D và controlled timeout/contention tests; approval không được mark PAID.
 

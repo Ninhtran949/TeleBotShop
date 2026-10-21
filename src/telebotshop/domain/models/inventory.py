@@ -141,6 +141,7 @@ class SealedUnit:
 
 class InventoryState(StrEnum):
     AVAILABLE = "AVAILABLE"
+    RESERVED = "RESERVED"
     RETIRED = "RETIRED"
 
 
@@ -173,6 +174,7 @@ class StockSummary:
     product_id: UUID
     sku: str
     available: int
+    reserved: int
     retired: int
     low_stock: bool
 
