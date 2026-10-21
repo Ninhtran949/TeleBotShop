@@ -1,1 +1,1 @@
-SCHEMA_HEAD = "0004_catalog"
+SCHEMA_HEAD = "0005_inventory"

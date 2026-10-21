@@ -7,6 +7,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from telebotshop.application.services.access import AccessService
 from telebotshop.application.services.catalog import CatalogService
 from telebotshop.application.services.identity import IdentityService
+from telebotshop.application.services.inventory import InventoryService
 from telebotshop.bootstrap import create_dispatcher
 from telebotshop.infrastructure.telegram.guard import IngressGuard
 from telebotshop.infrastructure.telegram.logging import configure_telegram_logging
@@ -20,7 +21,10 @@ async def test_rate_limit_blocks_before_use_case_and_bounds_memory(
     identity = AsyncMock(spec=IdentityService)
     telegram = TelegramRecorder(monkeypatch)
     dispatcher = create_dispatcher(
-        identity, AsyncMock(spec=AccessService), AsyncMock(spec=CatalogService)
+        identity,
+        AsyncMock(spec=AccessService),
+        AsyncMock(spec=CatalogService),
+        AsyncMock(spec=InventoryService),
     )
     for _ in range(10):
         await dispatcher.feed_update(telegram.bot, message_update("/start"))
@@ -43,7 +47,10 @@ async def test_database_errors_do_not_expose_secret_profile_or_report_success(
     identity.get_or_create_customer.side_effect = SQLAlchemyError("fake_secret_profile_payload")
     telegram = TelegramRecorder(monkeypatch)
     dispatcher = create_dispatcher(
-        identity, AsyncMock(spec=AccessService), AsyncMock(spec=CatalogService)
+        identity,
+        AsyncMock(spec=AccessService),
+        AsyncMock(spec=CatalogService),
+        AsyncMock(spec=InventoryService),
     )
     await dispatcher.feed_update(telegram.bot, message_update("/start"))
     assert "fake_secret_profile_payload" not in caplog.text
@@ -61,9 +68,9 @@ async def test_unknown_callback_does_not_mutate_and_has_safe_navigation_hint(
 ) -> None:
     identity, access = AsyncMock(spec=IdentityService), AsyncMock(spec=AccessService)
     telegram = TelegramRecorder(monkeypatch)
-    await create_dispatcher(identity, access, AsyncMock(spec=CatalogService)).feed_update(
-        telegram.bot, callback_update("forged:owner:101")
-    )
+    await create_dispatcher(
+        identity, access, AsyncMock(spec=CatalogService), AsyncMock(spec=InventoryService)
+    ).feed_update(telegram.bot, callback_update("forged:owner:101"))
     assert not identity.get_my_profile.called and not access.confirm.called
     assert "/start" in telegram.calls[-1].text
     await telegram.bot.session.close()

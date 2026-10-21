@@ -94,3 +94,25 @@ def photo_update(caption: str, *, actor: int = 9001) -> Update:
         }
     ]
     return Update.model_validate(payload)
+
+
+def document_update(
+    caption: str,
+    *,
+    actor: int = 9001,
+    file_size: int = 20,
+    file_name: str = "fake.txt",
+    mime_type: str = "text/plain",
+) -> Update:
+    payload = message_update(caption, actor=actor).model_dump(by_alias=True, exclude_none=True)
+    message = payload["message"]
+    message["caption"] = message.pop("text")
+    message["caption_entities"] = message.pop("entities")
+    message["document"] = {
+        "file_id": "BQACAg_FAKE_DOCUMENT_ID_123456789",
+        "file_unique_id": "fake_document",
+        "file_size": file_size,
+        "file_name": file_name,
+        "mime_type": mime_type,
+    }
+    return Update.model_validate(payload)

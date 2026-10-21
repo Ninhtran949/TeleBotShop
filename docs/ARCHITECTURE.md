@@ -2,7 +2,7 @@
 
 ## Trạng thái và lựa chọn
 
-Đây là baseline thiết kế được SE/SA chọn theo ủy quyền của Owner. T01–T04 đã triển khai toolchain/runtime, HTTP health, PostgreSQL/UoW/migrations, identity/permission/audit và public catalog/admin product maintenance. Telegram customer/admin adapters có development polling, chưa có inventory/checkout/worker/production webhook. Yêu cầu nghiệp vụ gốc ở [`task.md`](../task.md); lý do chọn kiến trúc ở [ADR-0001](adr/0001-modular-monolith.md). Thiết kế chỉ dựng package/file khi một slice cần dùng, không tạo toàn bộ cây trống.
+Đây là baseline thiết kế được SE/SA chọn theo ủy quyền của Owner. T01–T05 đã triển khai toolchain/runtime, HTTP health, PostgreSQL/UoW/migrations, identity/permission/audit, public catalog/admin và encrypted key/license inventory. Telegram customer/admin adapters có development polling, chưa có reservation/checkout/worker/production webhook. Yêu cầu nghiệp vụ gốc ở [`task.md`](../task.md); lý do chọn kiến trúc ở [ADR-0001](adr/0001-modular-monolith.md). Thiết kế chỉ dựng package/file khi một slice cần dùng, không tạo toàn bộ cây trống.
 
 Chọn **modular monolith**, một codebase/image, PostgreSQL là nguồn dữ liệu bền vững. Production dự kiến có hai process từ cùng image: HTTP ingress và fulfillment worker. Local polling chỉ là adapter development thay thế webhook, không chạy cùng webhook cho cùng bot.
 
@@ -49,7 +49,7 @@ src/telebotshop/
       uow.py                  # AsyncSession/transaction implementation
     payments/                 # Telegram Stars adapter
     delivery/                 # send message/document adapters
-    security/                 # encryption/key loading và adapter controls
+    crypto.py                 # AES-GCM/HMAC adapter; settings ở config.py
 migrations/                   # Alembic; thêm dần cùng slice cần schema
 tests/
   unit/
@@ -80,7 +80,15 @@ row lock + version CAS bảo vệ edits; cả handler và use case kiểm tra cu
 Customer/admin catalog routers chỉ gọi services. Customer navigation store giữ bounded
 actor-bound browse parameters trong instance router, không giữ products/roles/price/stock;
 restart/expiry mở lại `/shop`. Public models chỉ có typed public metadata/photo, không có
-inventory hoặc delivery payload. Không dựng inventory/order/fulfillment tables sớm.
+inventory hoặc delivery payload. Orders/fulfillment tables chỉ thêm khi tới task sở hữu.
+
+T05 thêm InventoryService, application parser/ports và typed key/license DTOs. Crypto adapter
+ở infrastructure dùng cryptography; domain/application không import crypto library/config.
+Pending import lưu sealed units, confirm import/retire + audit atomic qua cùng UoW. Crypto
+key registration guard và PostgreSQL constraints giữ identity/dedup; không expose decrypt
+use case trước entitlement. Admin router chỉ validate transport/render, download bounded
+memory qua Telegram SDK ngoài transaction rồi gọi use case kiểm tra lại quyền. Bootstrap
+wire InventorySettings/cipher/service/router; stock DTOs chỉ có IDs/status/counts.
 
 ## Ma trận import bắt buộc
 

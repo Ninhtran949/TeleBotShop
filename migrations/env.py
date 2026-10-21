@@ -7,7 +7,7 @@ from sqlalchemy.ext.asyncio import create_async_engine
 from sqlalchemy.pool import NullPool
 
 from telebotshop.infrastructure.config import Settings
-from telebotshop.infrastructure.database.models.catalog import metadata
+from telebotshop.infrastructure.database.models.inventory import metadata
 
 
 def run_migrations(connection: Connection) -> None:

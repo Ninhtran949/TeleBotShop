@@ -14,6 +14,7 @@ from telebotshop.bootstrap import create_dispatcher
 from telebotshop.domain.models.catalog import SaleState
 from telebotshop.infrastructure.database.uow import unit_of_work
 from telebotshop.infrastructure.telegram import guard as guard_module
+from tests.inventory import inventory_service
 from tests.telegram import TelegramRecorder, callback_update, message_update, photo_update
 
 
@@ -38,7 +39,7 @@ async def test_admin_customer_photo_price_and_hidden_callbacks_use_real_db_outsi
         return await telegram.send(bot, method, timeout)
 
     monkeypatch.setattr(telegram.bot.session, "make_request", AsyncMock(side_effect=send))
-    dispatcher = create_dispatcher(identity, access, catalog)
+    dispatcher = create_dispatcher(identity, access, catalog, inventory_service(migrated_database))
 
     async def mutate(update: Update, *, cancel: bool = False) -> None:
         await dispatcher.feed_update(telegram.bot, update)

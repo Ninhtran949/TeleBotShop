@@ -1,7 +1,10 @@
+import base64
+import binascii
+import json
 import re
 from typing import Literal
 
-from pydantic import Field, IPvAnyAddress, SecretStr, field_validator
+from pydantic import Field, IPvAnyAddress, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from sqlalchemy.engine import make_url
 from sqlalchemy.exc import ArgumentError
@@ -66,3 +69,71 @@ class BotSettings(Settings):
         if not re.fullmatch(r"[1-9][0-9]{0,15}:[A-Za-z0-9_-]{20,128}", token):
             raise ValueError("BOT_TOKEN is invalid")
         return value
+
+
+def decode_inventory_key(value: str) -> bytes:
+    try:
+        decoded = base64.b64decode(value, validate=True)
+        if len(decoded) == 32 and base64.b64encode(decoded).decode() == value:
+            return decoded
+    except (ValueError, binascii.Error):
+        pass
+    raise ValueError("Inventory keys must be canonical base64 of 32 bytes")
+
+
+def decode_inventory_keyring(value: SecretStr) -> dict[int, bytes]:
+    def unique_object(pairs: list[tuple[str, object]]) -> dict[str, object]:
+        result = dict(pairs)
+        if len(result) != len(pairs):
+            raise ValueError
+        return result
+
+    try:
+        record = json.loads(value.get_secret_value(), object_pairs_hook=unique_object)
+        if not isinstance(record, dict) or not 1 <= len(record) <= 32:
+            raise ValueError
+        keys = {}
+        for version, key in record.items():
+            if not isinstance(version, str) or not re.fullmatch(r"[1-9][0-9]{0,9}", version):
+                raise ValueError
+            number = int(version)
+            if number >= 2**31 or number in keys or not isinstance(key, str):
+                raise ValueError
+            keys[number] = decode_inventory_key(key)
+        return keys
+    except (ValueError, TypeError):
+        raise ValueError("Invalid inventory encryption keyring") from None
+
+
+class InventorySettings(BaseSettings):
+    model_config = SettingsConfigDict(env_file=None, hide_input_in_errors=True)
+
+    inventory_encryption_keys: SecretStr = Field(repr=False)
+    inventory_current_key_version: int = Field(ge=1, lt=2**31)
+    inventory_dedup_key: SecretStr = Field(repr=False)
+    low_stock_threshold: int = Field(default=5, ge=0, le=1_000_000)
+
+    @field_validator("inventory_encryption_keys")
+    @classmethod
+    def validate_keyring(cls, value: SecretStr) -> SecretStr:
+        decode_inventory_keyring(value)
+        return value
+
+    @field_validator("inventory_dedup_key")
+    @classmethod
+    def validate_dedup_key(cls, value: SecretStr) -> SecretStr:
+        decode_inventory_key(value.get_secret_value())
+        return value
+
+    @model_validator(mode="after")
+    def validate_distinct_current_key(self) -> "InventorySettings":
+        keys = self.keyring()
+        if self.inventory_current_key_version not in keys or self.dedup_key() in keys.values():
+            raise ValueError("Current encryption key missing or dedup key reused")
+        return self
+
+    def keyring(self) -> dict[int, bytes]:
+        return decode_inventory_keyring(self.inventory_encryption_keys)
+
+    def dedup_key(self) -> bytes:
+        return decode_inventory_key(self.inventory_dedup_key.get_secret_value())

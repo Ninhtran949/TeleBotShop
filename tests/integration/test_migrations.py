@@ -10,10 +10,30 @@ from sqlalchemy import Connection, text
 from sqlalchemy.ext.asyncio import AsyncEngine
 
 from telebotshop.application.services.access import AccessService
+from telebotshop.application.services.catalog import CatalogService
 from telebotshop.domain.models.access import ROLE_PERMISSIONS
 from telebotshop.infrastructure.database.models.identity import metadata
 from telebotshop.infrastructure.database.schema import SCHEMA_HEAD
 from telebotshop.infrastructure.database.uow import unit_of_work
+from tests.inventory import setup_inventory
+
+
+@pytest.mark.asyncio
+async def test_t04_upgrade_preserves_catalog_audit_and_pending_product_confirmation(database):
+    async with database.begin() as connection:
+        await connection.run_sync(upgrade, "0004_catalog")
+    product = await setup_inventory(database)
+    catalog = CatalogService(partial(unit_of_work, database))
+    pending = await catalog.prepare_price(9001, "DEMO-1", 300)
+    async with database.begin() as connection:
+        audit_count = await connection.scalar(text("SELECT count(*) FROM audit_logs"))
+        await connection.run_sync(upgrade)
+        assert await connection.scalar(text("SELECT id FROM products")) == product.id
+        assert await connection.scalar(text("SELECT price_stars FROM products")) == 100
+        assert await connection.scalar(text("SELECT count(*) FROM audit_logs")) == audit_count
+        assert await connection.scalar(text("SELECT count(*) FROM inventory_units")) == 0
+    assert await catalog.confirm(9001, pending.id) is True
+    assert (await catalog.admin_product(9001, "DEMO-1")).draft.price_stars == 300
 
 
 def upgrade(connection: Connection, revision: str = "head") -> None:

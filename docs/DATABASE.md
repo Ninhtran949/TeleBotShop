@@ -2,9 +2,10 @@
 
 T02 dùng PostgreSQL **18.6**, SQLAlchemy **2.0.55** Async + asyncpg **0.32.0** và
 Alembic **1.20.0**. T03 thêm identity/access/settings và audit repositories bằng SQLAlchemy
-Core tables; không trả ORM/session ra application. Head hiện tại **`0004_catalog`**;
+Core tables; không trả ORM/session ra application. Head hiện tại **`0005_inventory`**;
 `0001_runtime` giữ nguyên, `0002_identity` thêm identity/Owner/audit, `0003_access` thêm
-explicit grants, settings và confirmation. T04 thêm `0004_catalog`; chưa tạo orders hoặc kho.
+explicit grants, settings và confirmation. T04 thêm `0004_catalog`; T05 thêm encrypted
+inventory/actions/key verifiers, chưa tạo orders/reservations.
 
 | Tables | Contract |
 | --- | --- |
@@ -17,6 +18,9 @@ explicit grants, settings và confirmation. T04 thêm `0004_catalog`; chưa tạ
 | `categories` | UUID/code unique, public name, optional parent FK; trigger giữ code/parent immutable và chỉ cho parent là root. |
 | `products` | UUID/SKU unique immutable, type immutable, category FK, positive BIGINT Stars, public name/description/typed JSONB, HIDDEN/ACTIVE, optional public photo ID và version. |
 | `catalog_actions` | Catalog-owned pending intent; actor FK, kind, preallocated target UUID, bounded typed public JSONB, expected version, expiry/status/completed_at. Create target chưa tồn tại nên target không có FK. |
+| `inventory_units` | Finite UNIQUE_KEY/LICENSE; product FK/type guard, encrypted BYTEA + nonce/version, per-product HMAC fingerprint unique, unique key-version/nonce, AVAILABLE/RETIRED. Identity/ciphertext/fingerprint immutable; chỉ retire, không delete/resurrect. |
+| `inventory_actions` | Actor/product FKs, import hoặc retire, số lượng 1–1000, 10-minute expiry, status/completed_at. Pending import giữ encrypted envelopes JSONB; retire có composite unit/product FK. Apply/cancel clear envelopes. |
+| `inventory_crypto_state` | Singleton chỉ lưu HMAC verifiers của dedup/AES keys theo version, không lưu raw keys. Khóa row khi kiểm tra/register; từ chối đổi dedup, đổi key cùng version hoặc bỏ registered version. |
 
 ## Local development và test
 
@@ -82,7 +86,7 @@ Chưa có production migration, destructive upgrade, backup/restore hoặc relea
 
 ## Unit of work
 
-Application UoW port có `identity`, `access` repositories và `commit()`;
+Application UoW port có `identity`, `access`, `catalog`, `inventory` repositories và `commit()`;
 concrete UoW và AsyncSession ở infrastructure.
 `unit_of_work(engine)` tạo session/transaction mới cho mỗi lần gọi, không share session
 giữa concurrent tasks. Use case phải gọi `commit()` tường minh. Session close rollback
@@ -125,7 +129,31 @@ riêng vì PostgreSQL regex bounds chỉ hỗ trợ tới 255. T04 không thêm 
 
 Migration tests đi từ T03 head lên catalog và giữ pending Owner confirmation/audit hoạt
 động; metadata drift rỗng. `0001_runtime`–`0003_access` không sửa. Không auto-seed runtime;
-demo hợp pháp giả nằm trong test fixtures/README, chưa có actual inventory.
+demo hợp pháp giả nằm trong test fixtures/README. T05 tests thêm fake encrypted key/license
+units; không nhập inventory thật hoặc migrate dev/production database trong task này.
+
+T05 import/retire kiểm tra current `inventory.manage` trong UoW. Import prepare validate
+toàn batch trước commit và seal từng unit theo ADR-0003; durable pending action không phải
+AVAILABLE stock. Confirm khóa key-registration singleton rồi action; insert units theo
+thứ tự fingerprint ổn định, `ON CONFLICT` trên named per-product fingerprint constraint.
+Bất kỳ row trùng gây use-case error và rollback cả các rows mới trong batch. AES nonce
+collision bị unique constraint từ chối; không fallback plaintext hoặc âm thầm bỏ row.
+Retire dùng conditional UPDATE đúng product/unit và trạng thái AVAILABLE. Stock mutation,
+redacted audit và applied marker/clear pending envelopes cùng commit; cancel chỉ clear
+pending intent, action đã apply không được cancel để undo. Repositories không commit.
+
+Key verifiers được pin ở polling startup hoặc lần import đầu; không decrypt trong các
+luồng này. Guard bảo thủ serialize inventory writes, bao gồm concurrent confirmations;
+thu hẹp khi có contention thực tế. Independent-connection import tests vẫn kiểm tra DB
+uniqueness/atomicity, replay/retire races và audit/deferred commit rollback. Keyring đổi
+version phải giữ mọi registered old key; proof chỉ chứa HMAC, raw keys giữ ngoài DB.
+
+Stock/low-stock queries chỉ SELECT IDs/status/aggregate counts và product public fields;
+không đọc ciphertext vào DTO hoặc log. 5 units/products mỗi trang; low-stock chỉ active
+finite SKU có committed AVAILABLE count ≤ configured threshold, không tính pending batch.
+T04→T05 migration giữ products, audit và pending product confirmation hoạt động; không
+auto-seed units. `0001_runtime`–`0004_catalog` giữ nguyên. RESERVED/ALLOCATED, reservation
+Fks và last-key checkout race thuộc T06/T08; chưa tạo placeholder orders để test sớm.
 
 ## Health và shutdown
 

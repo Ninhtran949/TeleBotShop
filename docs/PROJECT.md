@@ -12,11 +12,12 @@ Mục tiêu từ [`task.md`](../task.md): shop Telegram bán tài nguyên số �
 | T02: settings/runtime, HTTP health, PostgreSQL/UoW, Alembic, dev/test Compose | Đã triển khai và kiểm chứng local trên PostgreSQL 18.6; revision `0001_runtime` giữ nguyên. |
 | T03: identity/Owner, explicit permissions, audit và Telegram admin/settings foundation | Đã triển khai và kiểm chứng local: schema head `0003_access`, `/start`/private profile, `/admin`, Owner grant/revoke/settings confirmation và development polling. Telegram API mock; PostgreSQL thật. |
 | T04: catalog, public metadata năm loại và admin product maintenance | Đã triển khai và kiểm chứng local: schema head `0004_catalog`, category/subcategory, browse/search/pagination, staff tạo/sửa sản phẩm/giá/trạng thái/ảnh với confirmation, current permission và audit. Chỉ metadata công khai; chưa nhận đơn. |
-| Inventory/orders/payments, production webhook/worker, CI, production image/deployment | Chưa triển khai; các phần tương ứng trong cây kiến trúc là cấu trúc đích. |
+| T05: encrypted key/license inventory, import/retire/stock/low-stock | Đã triển khai và kiểm chứng local: head `0005_inventory`, AES-GCM/HMAC, versioned key guard, atomic TXT/CSV import, current inventory.manage, durable confirmation/audit và stock pagination. Download/send Telegram mock ngoài transaction, PostgreSQL thật. |
+| Reservation/orders/payments, production webhook/worker, CI, production image/deployment | Chưa triển khai; các phần tương ứng trong cây kiến trúc là cấu trúc đích. |
 | BotFather/test bot, live credentials, backup/restore | Chưa cấu hình hoặc kiểm chứng; local PostgreSQL dùng credentials giả tách biệt. |
-| Git | Repository branch `dev`; T01 (`ea4882f`) và T02 (`6f21cec`) đã có commit. T03 đang staged; T04 chưa stage/commit/push. Giữ nguyên index/history và work đã có. |
+| Git | Branch `dev`; T01–T04 đã có commit, HEAD `9492004` khi bắt đầu T05; Git sạch. T05 chưa stage/commit/push; không sửa index/history hoặc discard work. |
 
-Trạng thái và bằng chứng của từng slice nằm trong [implementation plan](plans/shop/implementation-plan.md). T01–T04 hoàn tất; **T05** là task tiếp theo, còn pending và cần được giao riêng. Không tự chạy toàn roadmap khi chỉ được giao một task.
+Trạng thái và bằng chứng của từng slice nằm trong [implementation plan](plans/shop/implementation-plan.md). T01–T05 hoàn tất; **T06** là task tiếp theo, còn pending và cần được giao riêng. Không tự chạy toàn roadmap khi chỉ được giao một task.
 
 ## Đọc theo nhiệm vụ
 
@@ -30,7 +31,7 @@ Trạng thái và bằng chứng của từng slice nằm trong [implementation 
 
 ## Stack đã chọn và mức triển khai
 
-Python 3.12, aiogram 3.x, FastAPI, PostgreSQL 18, SQLAlchemy 2.0 Async + asyncpg, Alembic, Pydantic Settings, Pytest, Ruff, Docker Compose. `uv` quản lý môi trường/lock; `cryptography` phục vụ mã hóa inventory khi tới T05. Lý do và giới hạn nằm trong ADR-0001 đến ADR-0004. Hiện pin FastAPI 0.156.4, Pydantic 2.13.5/Settings 2.16.1, SQLAlchemy 2.0.55 Async, asyncpg 0.32.0, Alembic 1.20.0, Uvicorn 0.54.0 và aiogram 3.31.0; dev tests dùng httpx2 2.15.1/Pytest-asyncio 1.4.0. T03 điều chỉnh Pydantic từ 2.14.1 xuống 2.13.5 theo constraint `<2.14` của aiogram và kiểm chứng lại T02 contracts.
+Python 3.12, aiogram 3.x, FastAPI, PostgreSQL 18, SQLAlchemy 2.0 Async + asyncpg, Alembic, Pydantic Settings, Pytest, Ruff, Docker Compose. `uv` quản lý môi trường/lock; T05 pin `cryptography 50.0.2` cho AES-GCM; lock thêm cffi 2.1.1/pycparser 3.11, giữ nguyên mọi locked version cũ. Lý do và giới hạn nằm trong ADR-0001 đến ADR-0004. Hiện pin FastAPI 0.156.4, Pydantic 2.13.5/Settings 2.16.1, SQLAlchemy 2.0.55 Async, asyncpg 0.32.0, Alembic 1.20.0, Uvicorn 0.54.0 và aiogram 3.31.0; dev tests dùng httpx2 2.15.1/Pytest-asyncio 1.4.0. T03 điều chỉnh Pydantic từ 2.14.1 xuống 2.13.5 theo constraint `<2.14` của aiogram và kiểm chứng lại T02 contracts.
 
 Python/uv/dev/build versions và lockfile đã pin trong T01; runtime/development packages cập nhật ở T02. Compose pin official PostgreSQL 18.6-bookworm bằng immutable digest; đã chạy với Docker Linux Engine 29.6.2/Compose 5.3.1. Xem [README](../README.md) để bootstrap/start và [DATABASE](DATABASE.md) cho DB/migrations/isolation. Redis chỉ thêm trước khi cần chia sẻ rate limit/FSM giữa nhiều ingress; chưa có React, Mini App, Celery, microservice hoặc plugin bổ sung.
 
@@ -71,18 +72,20 @@ python scripts/verify_harness.py
 python -B -m unittest discover -s tests -p test_harness.py -v
 ```
 
-HTTP không cần bot secrets. Polling cần BOT_TOKEN/OWNER_ID trong environment bảo vệ, chỉ
+HTTP không cần bot secrets. Polling cần BOT_TOKEN/OWNER_ID và inventory key settings trong environment bảo vệ, chỉ
 development/test, từ chối existing webhook; hướng dẫn trong README. Không chạy command
-polling thật từ việc T03 được giao code/test.
+polling thật từ các task code/test T03–T05.
 
-T04 verification: **211 unit/contract/architecture**, **60 PostgreSQL integration**, **6 harness**
+T05 verification: **256 unit/contract/architecture**, **86 PostgreSQL integration**, **6 harness**
 pass; lock/sync, lint/format, architecture, build/isolated runtime wheel và dependency audit
-pass. Tests bao gồm T03 regressions, catalog năm loại, hidden/public scope, navigation và
-tampered callbacks, current permission, concurrent price/confirmation, audit/commit rollback,
-T03→T04 migration preservation, schema drift và mọi Telegram send ngoài DB transaction.
+pass. Tests bao gồm T03/T04 regressions, bounded typed inventory import, AEAD/tamper/old keys,
+missing/changed key guard, current permission/revoke during download, two-connection duplicate
+import, retire/replay/audit/deferred rollback, T04→T05 preservation và metadata drift. Mọi
+mocked Telegram download/send trong end-to-end flow assert nằm ngoài DB transaction.
 Chưa có type checker, hosted CI, Telegram test/live hoặc production validation; scope hiện
-có và giới hạn ở [SECURITY](SECURITY.md). Không suy ra inventory/checkout/delivery acceptance
-từ catalog hoặc từ passing mocked Telegram tests.
+có và giới hạn ở [SECURITY](SECURITY.md). Không suy ra reservation/checkout/delivery hoặc
+external Telegram acceptance từ inventory và passing mocked Telegram tests. Backup/restore
+keys, nonfinite payloads và entitled decrypt vẫn theo task sở hữu.
 
 ## Điều kiện cần Owner cung cấp trước khi mở bán
 

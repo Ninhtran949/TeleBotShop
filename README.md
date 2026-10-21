@@ -4,9 +4,10 @@ Shop Telegram bán tài nguyên số có quyền phân phối, thanh toán Stars
 Trạng thái và task đang được thực hiện: [PROJECT](docs/PROJECT.md),
 [implementation plan](docs/plans/shop/implementation-plan.md).
 
-T01–T04 đã có toolchain/runtime, identity/permissions/audit, catalog PostgreSQL với năm loại
-metadata công khai, duyệt/tìm kiếm/phân trang và admin sửa sản phẩm/giá/hiện–ẩn có xác nhận.
-Chưa có kho/checkout/order/payment hoặc production webhook; Telegram API trong tests là mock.
+T01–T05 đã có toolchain/runtime, identity/permissions/audit, catalog PostgreSQL với năm loại
+metadata công khai, admin product maintenance và kho key/license mã hóa, import atomic,
+retire/low-stock có phân quyền. Chưa có reservation/checkout/order/payment hoặc production
+webhook; Telegram API trong tests là mock.
 
 ## Môi trường development
 
@@ -39,7 +40,7 @@ uv sync --locked --no-build
 
 `uv_build` cùng phiên bản được tích hợp trong uv; không chạy installer script từ mạng.
 Tool/cache/virtualenv và build artifacts được ignore. HTTP health và automated tests không
-cần Telegram token thật hoặc encryption key.
+cần Telegram token thật hoặc encryption key thật.
 
 ## Chạy local
 
@@ -67,7 +68,7 @@ Chi tiết isolation, transaction và shutdown: [DATABASE](docs/DATABASE.md).
 
 ## Development polling và quyền Owner
 
-Sau migration, operator đặt `BOT_TOKEN` và numeric `OWNER_ID` trong process environment
+Sau migration, operator đặt `BOT_TOKEN`, numeric `OWNER_ID` và inventory key settings bên dưới trong process environment
 hoặc local `.env` được bảo vệ, theo mẫu trống trong `.env.example`. Không đưa secrets vào chat/Git.
 Polling chỉ cho `APP_ENV=development` hoặc `test`; dùng test bot tách biệt và chỉ chạy khi
 operator chủ động muốn kết nối Telegram:
@@ -78,7 +79,7 @@ uv run --no-sync telebotshop polling
 
 Nếu dùng local `.env`: `uv run --env-file .env --no-sync telebotshop polling`.
 HTTP health tiếp tục chạy riêng bằng `telebotshop` hoặc `telebotshop http`.
-Polling kiểm tra exact schema head, bootstrap Owner và từ chối bot đã có webhook;
+Polling kiểm tra exact schema head, bootstrap Owner, kiểm tra registered inventory keys và từ chối bot đã có webhook;
 không xóa webhook hoặc drop pending updates. Chỉ một polling process cho một bot.
 Thiếu/sai settings hoặc Owner mismatch thoát 2; lỗi DB/Telegram runtime thoát 1 với thông báo
 đã redact. Ctrl+C kết thúc polling và đóng client/pool; interrupted CLI có thể thoát 130.
@@ -87,8 +88,9 @@ Trong private chat:
 
 - `/start` tạo/cập nhật metadata trên cùng Telegram ID; có Cửa hàng, Tìm kiếm, Tài khoản,
   Quay lại/Trang chủ/Hủy. `/shop` mở danh mục; `/search <từ khóa>` tìm tên/mô tả/SKU.
-- `/admin` kiểm tra quyền hiện tại. Owner có Quản lý quyền, Cài đặt và Sản phẩm; staff có
-  `catalog.manage` thấy Sản phẩm. Chưa có orders/refunds controls của các task sau.
+- `/admin` kiểm tra quyền hiện tại. Owner có Quản lý quyền, Cài đặt, Sản phẩm và Kho hàng;
+  staff có `catalog.manage` thấy Sản phẩm, `inventory.manage` thấy Kho hàng.
+  Chưa có orders/refunds controls của các task sau.
 - Owner dùng `/grant <Telegram_ID> <ADMIN|SUPPORT> <permission>` hoặc `/revoke` với cùng
   ba tham số, sau đó bấm **Xác nhận** trong 10 phút. Người nhận phải `/start` trước;
   lấy ID của chính mình từ Tài khoản. Mỗi lần chỉ đổi một permission.
@@ -156,10 +158,63 @@ Khách chỉ xem active products; search substring literal không phân biệt h
 filter gồm cả sản phẩm ở danh mục con. Navigation context actor-bound, tối đa 4096 views,
 hết hạn logic sau 10 phút hoặc mất khi restart/eviction; mở lại `/shop` nếu hết hạn.
 
-T04 chỉ có catalog và public metadata. Không lưu delivery key/file_id/content, không tự
-fetch URL, không hiển thị số stock giả hoặc nhận đơn; kho/payload/checkout thuộc T05/T06/T10.
+Product metadata vẫn chỉ là dữ liệu công khai. Private key/license nằm trong inventory mã hóa
+của T05; file/reusable/manual payload thuộc T10. Không tự fetch URL, không hiển thị số stock
+giả hoặc nhận đơn; reservation/checkout thuộc T06.
 Ảnh/catalog thông báo trạng thái thật hiện có, chưa là Telegram external acceptance.
 `APP_ENV=test` không tự đổi Bot API sang Stars test server; setup chính thức thuộc T14.
+
+## Inventory mã hóa và import (T05)
+
+Polling cần `INVENTORY_ENCRYPTION_KEYS` là JSON object, ví dụ cấu trúc
+`{"1":"<base64-32-byte-key>"}`, `INVENTORY_CURRENT_KEY_VERSION=1`, và
+`INVENTORY_DEDUP_KEY` là base64 của **32 bytes ngẫu nhiên khác**. Tạo bằng CSPRNG và
+đặt qua môi trường bảo vệ; placeholder không phải key hợp lệ. Không gửi key lên chat,
+không tái sử dụng fixture test, không commit hoặc in settings. HTTP health/migrations
+không cần encryption keys; automated tests tự inject fake keys.
+Keyring nhận 1–32 versions, mỗi version là số nguyên 1–2.147.483.647 dưới dạng JSON key.
+
+AES-GCM 256-bit dùng nonce ngẫu nhiên 12 bytes; AAD bind product UUID/SKU/unit UUID/type/version.
+HMAC-SHA256 dùng dedup key riêng, không trim/casefold/normalize key material. DB pin HMAC
+verifiers của cấu hình lần đầu dùng: đổi dedup key, thay AES key dưới cùng version hoặc
+bỏ registered old version đều fail-closed trước Telegram polling/import. Để thêm version,
+giữ nguyên các key cũ, thêm version/key mới và chọn current version mới. Chưa có bulk
+re-encryption/key removal; thay dedup key cần migration riêng có Owner authorization.
+Backup keys riêng DB; mất key thì không phục hồi payload từ DB dump đơn thuần.
+
+Staff có `inventory.manage` dùng trong private chat:
+
+```text
+/inventory
+/stock DEMO-KEY
+/retire DEMO-KEY <UNIT_ID từ /stock>
+/lowstock
+```
+
+Import bằng **document .txt/.csv**, caption `/import DEMO-KEY`. Không đặt key trong caption.
+Chỉ UNIQUE_KEY và LICENSE nhận finite units ở T05. UTF-8 (cho phép BOM), tối đa **1 MiB**,
+**1.000 rows/batch**, mỗi key tối đa **4.096 UTF-8 bytes**, không rỗng/control characters.
+TXT: một key mỗi dòng, LF/CRLF; CSV: đúng một header `key` (UNIQUE_KEY) hoặc `license_key`
+(LICENSE), đúng một cột/row, hỗ trợ CSV quoting, không multiline key. Khoảng trắng đầu/cuối
+của key hợp lệ được giữ nguyên. Không dùng blank lines; một final newline được cho phép.
+
+Download được giới hạn thực tế trong bộ nhớ, không ghi plaintext temporary file, không
+đọc local file path hoặc tải URL tùy ý. Confirmation chỉ hiển thị SKU/số lượng; pending
+batch chỉ lưu encrypted envelopes, **chưa tính vào stock**. Xác nhận trong 10 phút:
+units + redacted audit + applied marker atomic. Bất kỳ row lỗi/trùng đều rollback batch;
+lỗi chỉ trả số dòng/mã lỗi, không echo key. Hai import đồng thời vẫn bị DB unique constraint
+chặn trùng trong SKU, kể cả key đã retire. Cancel xóa pending envelopes; replay không tạo
+thêm stock, action đã apply không thể cancel để undo.
+
+`/stock` chỉ trả counts và unit IDs/status, 5 units/trang; không có secret view/export/decrypt.
+Retire chỉ cho AVAILABLE → RETIRED, có confirmation/audit; không delete/reuse payload.
+`/lowstock` chỉ query active finite products, committed AVAILABLE ≤ `LOW_STOCK_THRESHOLD`
+(mặc định 5, khoảng 0–1.000.000), 5 products/trang. Đây là query/flag thực, chưa tự gửi
+notification, reserve unit, tạo invoice hoặc nhận thanh toán. Customer UI vẫn ghi **Chưa nhận đơn**.
+Pending actions hết hạn bị chặn; chưa có retention job trước khi Owner chốt policy.
+
+Dependency theo ADR-0003: [cryptography 50.0.2](https://pypi.org/project/cryptography/50.0.2/),
+pin trong manifest/lock; crypto contract theo [AESGCM documentation](https://cryptography.io/en/stable/hazmat/primitives/aead/#cryptography.hazmat.primitives.ciphers.aead.AESGCM).
 
 ## PostgreSQL integration tests
 

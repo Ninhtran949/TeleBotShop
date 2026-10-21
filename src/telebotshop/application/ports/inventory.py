@@ -1,0 +1,36 @@
+from typing import Protocol
+from uuid import UUID
+
+from telebotshop.domain.models.catalog import Page, Product
+from telebotshop.domain.models.inventory import (
+    CryptoProof,
+    InventoryAction,
+    InventoryUnitView,
+    SealedUnit,
+    StockPage,
+    StockSummary,
+)
+
+
+class InventoryRepository(Protocol):
+    async def check_keys(self, proof: CryptoProof) -> None: ...
+
+    async def save_action(self, action: InventoryAction, units: tuple[SealedUnit, ...]) -> None: ...
+
+    async def action(self, action_id: UUID) -> InventoryAction | None: ...
+
+    async def pending_units(self, action_id: UUID) -> tuple[SealedUnit, ...]: ...
+
+    async def add_units(self, product: Product, units: tuple[SealedUnit, ...]) -> int | None: ...
+
+    async def unit(self, unit_id: UUID) -> InventoryUnitView | None: ...
+
+    async def retire(self, product_id: UUID, unit_id: UUID) -> bool: ...
+
+    async def stock(self, product: Product, page: int, threshold: int) -> StockPage: ...
+
+    async def low_stock(self, page: int, threshold: int) -> Page[StockSummary]: ...
+
+    async def complete(self, action: InventoryAction, *, cancelled: bool = False) -> None: ...
+
+    async def audit(self, action: InventoryAction) -> None: ...

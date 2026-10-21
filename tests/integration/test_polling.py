@@ -1,4 +1,5 @@
 import asyncio
+import base64
 from functools import partial
 from unittest.mock import AsyncMock
 
@@ -11,9 +12,38 @@ from sqlalchemy.ext.asyncio import AsyncEngine
 
 from telebotshop import bootstrap
 from telebotshop.application.services.identity import IdentityService
+from telebotshop.domain.models.inventory import InventoryCryptoError
 from telebotshop.infrastructure.config import BotSettings
 from telebotshop.infrastructure.database.uow import unit_of_work
+from tests.inventory import fake_inventory_settings, inventory_service, setup_inventory
 from tests.telegram import FAKE_TOKEN, TelegramRecorder
+
+
+@pytest.mark.asyncio
+async def test_polling_checks_registered_keys_before_any_telegram_connection(
+    migrated_database, monkeypatch
+):
+    await setup_inventory(migrated_database)
+    await inventory_service(migrated_database).check_keys()
+    settings = fake_inventory_settings()
+    changed = type(settings)(
+        **{
+            **settings.model_dump(),
+            "inventory_dedup_key": base64.b64encode(b"e" * 32).decode(),
+        }
+    )
+    bot = AsyncMock(side_effect=AssertionError("Telegram must not be initialized"))
+    monkeypatch.setattr(bootstrap, "Bot", bot)
+    monkeypatch.setattr(bootstrap, "create_async_engine", lambda *args, **kwargs: migrated_database)
+    bot_settings = BotSettings(
+        app_env="test",
+        database_url="postgresql+asyncpg://fake:fake@127.0.0.1/fake",
+        bot_token=FAKE_TOKEN,
+        owner_id=9001,
+    )
+    with pytest.raises(InventoryCryptoError):
+        await bootstrap.run_polling(bot_settings, changed)
+    assert not bot.called and migrated_database.pool.checkedout() == 0
 
 
 @pytest.mark.asyncio
@@ -57,17 +87,17 @@ async def test_polling_preserves_webhook_closes_resources_and_bootstraps_owner(
     )
     if webhook:
         with pytest.raises(bootstrap.PollingStartupError, match="Webhook is configured"):
-            await bootstrap.run_polling(settings)
+            await bootstrap.run_polling(settings, fake_inventory_settings())
         polling.assert_not_awaited()
     else:
         if outcome == "error":
             with pytest.raises(TelegramNetworkError):
-                await bootstrap.run_polling(settings)
+                await bootstrap.run_polling(settings, fake_inventory_settings())
         elif outcome == "cancelled":
             with pytest.raises(asyncio.CancelledError):
-                await bootstrap.run_polling(settings)
+                await bootstrap.run_polling(settings, fake_inventory_settings())
         else:
-            await bootstrap.run_polling(settings)
+            await bootstrap.run_polling(settings, fake_inventory_settings())
         polling.assert_awaited_once_with(
             telegram.bot,
             allowed_updates=["message", "callback_query"],

@@ -1,6 +1,6 @@
 # Spec: catalog-inventory
 
-Status: T04 triển khai public catalog, typed public metadata và protected admin maintenance; inventory/payload/checkout/fulfillment tiếp tục theo T05/T06/T10. Chưa nghiệm thu toàn CI-01..06 hoặc live Telegram. Nguồn: `task.md` §§3,4,8,10. Depends on: [identity-access](identity-access.md).
+Status: T04 public catalog/admin và T05 encrypted finite inventory/import/retire/low-stock đã triển khai; reservation/checkout/fulfillment và nonfinite secret payload tiếp tục theo T06/T09/T10. Chưa nghiệm thu toàn CI-01..06 hoặc live Telegram. Nguồn: `task.md` §§3,4,8,10. Depends on: [identity-access](identity-access.md).
 
 ## Catalog và product contracts
 
@@ -21,15 +21,16 @@ Không dùng một chuỗi text cho tất cả product types. Dùng typed payloa
 T04 public schemas riêng: UNIQUE_KEY `{}`; LICENSE `instructions`; DIGITAL_FILE
 `file_name`/`mime_type`; REUSABLE_RESOURCE `format=TEXT|DOCUMENT`; MANUAL_FULFILLMENT
 `customer_notice`. Đây là metadata công khai, không phải delivery payload trong bảng trên.
-Typed secret payload/validation/encryption được thêm ở task sở hữu, không lưu plaintext
-key/file_id/content sớm trong products. Photo reference chỉ dành cho ảnh minh họa công khai.
+T05 có typed UNIQUE_KEY/LICENSE secret payload/validation/encryption riêng trong inventory,
+không đưa key/file_id/content vào products. Nonfinite secret payload thuộc T10.
+Photo reference chỉ dành cho ảnh minh họa công khai.
 
 Contract hiện tại: root/subcategory hai cấp, immutable case-sensitive code/SKU/type;
 new product hidden, Owner-delegated `catalog.manage` + confirmation/audit cho writes.
 CatalogService cung cấp public categories/products/product và protected admin/prepare/
 confirm/cancel use cases. Pagination 5 items/page (0–9999), search literal 1–80 ký tự;
 private router giữ actor-bound bounded navigation parameters, không cache business data.
-Chưa có inventory availability/order API nên không đưa stock giả hoặc nút mua vào T04.
+Stock/low-stock chỉ đọc qua protected InventoryService; chưa có order API hoặc nút mua.
 Chi tiết command/schema/limits tại [README](../../../README.md), [DATABASE](../../DATABASE.md)
 và [SECURITY](../../SECURITY.md); CI-01 stock/order gating vẫn thuộc T05/T06.
 
@@ -49,6 +50,20 @@ CSV/TXT từ staff có quyền, bounded input (baseline tối đa 1 MiB và 1.00
 
 Unique constraint bắt cả hai import đồng thời vượt qua application precheck. Mọi import/sửa kho/giá có audit metadata, không có plaintext key. Encryption errors fail closed, không fallback lưu plaintext.
 
+T05 contract hiện tại: InventoryService prepare_import/prepare_retire/confirm/cancel/stock/
+low_stock; current inventory.manage trong UoW và handler. Confirmation actor/target-bound,
+10 phút; pending import chỉ giữ sealed envelopes, chưa AVAILABLE; apply/cancel clear
+envelopes, applied không thể cancel để undo. Unit identity/material immutable, không delete;
+retire chỉ AVAILABLE→RETIRED. RESERVED/ALLOCATED và order FKs thuộc T06/T08.
+CSV header chính xác `key` hoặc `license_key` theo type; TXT một key mỗi dòng; UTF-8/BOM,
+LF/CRLF, key ≤4096 UTF-8 bytes, không control/blank, không trim/normalize material. Toàn batch
+parse trước commit; error chỉ row/code. Download capped memory-only qua SDK, không temp file.
+Crypto guard pin HMAC verifiers ngoài payload: dedup/version-key changes hoặc thiếu old
+version fail closed, keys không nằm trong DB. Low-stock chỉ active finite SKU có committed
+AVAILABLE ≤ LOW_STOCK_THRESHOLD (mặc định 5); query/flag chưa tự dispatch notification.
+Không có decrypt/export use case trước authorized entitlement; old-version/tamper primitive
+được test tại crypto adapter. README/DATABASE/SECURITY sở hữu command/config/evidence chi tiết.
+
 ## Acceptance criteria
 
 - **CI-01:** Catalog/search/pagination trả dữ liệu thật, không lộ secrets; hết hàng/inactive không cho tạo order hợp lệ.
@@ -58,4 +73,7 @@ Unique constraint bắt cả hai import đồng thời vượt qua application p
 - **CI-05:** Expiry chạy cạnh PAID không release allocation; retire không xóa mất entitlement lịch sử.
 - **CI-06:** Tamper ciphertext/sai AAD/sai key bị từ chối; permitted entitlement mới được decrypt; low-stock alert không dùng secret payload.
 
-Verification: unit payload/validation/UX tests; PostgreSQL thật cho allocation/expiry/import races và constraints; mocked Telegram cho admin/catalog contracts. Các tests này chưa tồn tại ở bước thiết kế.
+Verification T04/T05: unit metadata/key/license/parser/AEAD/settings/UX; PostgreSQL thật cho
+import/retire races, constraints và rollback; mocked Telegram dispatcher với DB thật, download/
+send ngoài transaction. Allocation/expiry/payment-vs-stock và entitlement decryption còn ở
+T06/T08/T09; tests hiện tại không thay thế các gates đó. Evidence tại implementation plan.

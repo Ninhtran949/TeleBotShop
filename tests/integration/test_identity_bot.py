@@ -14,6 +14,7 @@ from telebotshop.application.services.identity import IdentityService
 from telebotshop.bootstrap import create_dispatcher
 from telebotshop.domain.models.access import Permission
 from telebotshop.infrastructure.database.uow import unit_of_work
+from tests.inventory import inventory_service
 from tests.telegram import TelegramRecorder, callback_update, message_update
 
 
@@ -38,7 +39,9 @@ async def test_start_admin_confirm_revoke_and_settings_use_real_db_outside_teleg
     monkeypatch.setattr(
         telegram.bot.session, "make_request", AsyncMock(side_effect=assert_closed_uow)
     )
-    dispatcher = create_dispatcher(identity, access, CatalogService(factory))
+    dispatcher = create_dispatcher(
+        identity, access, CatalogService(factory), inventory_service(migrated_database)
+    )
     await dispatcher.feed_update(telegram.bot, message_update("/start"))
     await dispatcher.feed_update(telegram.bot, message_update("/admin"))
     assert "không có quyền" in telegram.calls[-1].text

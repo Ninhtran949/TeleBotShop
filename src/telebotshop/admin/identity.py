@@ -28,6 +28,8 @@ def admin_menu(actor: Access) -> tuple[str, InlineKeyboardMarkup]:
     rows = []
     if Permission.MANAGE_CATALOG in actor.permissions:
         rows.append([InlineKeyboardButton(text="Sản phẩm", callback_data="pc:list:0")])
+    if Permission.MANAGE_INVENTORY in actor.permissions:
+        rows.append([InlineKeyboardButton(text="Kho hàng", callback_data="iv:home")])
     if Permission.MANAGE_ACCESS in actor.permissions:
         rows.append([InlineKeyboardButton(text="Quản lý quyền", callback_data="adm:access")])
     if Permission.MANAGE_SETTINGS in actor.permissions:

@@ -9,6 +9,7 @@ from aiogram.types import CallbackQuery, Message, TelegramObject
 from sqlalchemy.exc import SQLAlchemyError
 
 from telebotshop.domain.errors import AccessDenied, CatalogNotFound, InvalidAction, InvalidInput
+from telebotshop.domain.models.inventory import InventoryCryptoError, InventoryImportError
 
 logger = logging.getLogger(__name__)
 
@@ -64,6 +65,14 @@ class IngressGuard(BaseMiddleware):
                 return await handler(event, data)
             except AccessDenied:
                 text = "Bạn không có quyền thực hiện thao tác này."
+            except InventoryImportError as error:
+                location = f" ở dòng {error.row}" if error.row is not None else ""
+                text = (
+                    f"Không thể nhập kho{location}. Mã lỗi: {error.code}. Kiểm tra file và thử lại."
+                )
+            except InventoryCryptoError:
+                logger.warning("telegram_inventory_crypto_failure")
+                text = "Không thể xác minh mã hóa kho. Vui lòng kiểm tra cấu hình bảo mật."
             except InvalidInput:
                 text = "Dữ liệu không hợp lệ. Vui lòng kiểm tra hướng dẫn."
             except CatalogNotFound:

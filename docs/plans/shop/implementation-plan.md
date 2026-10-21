@@ -1,6 +1,6 @@
 # Implementation plan và task ledger
 
-Status: **T01–T04 hoàn tất; T05–T18 pending**. Owner giao task tiếp theo (T04) ngày 2026-10-21. T03 đang staged khi bắt đầu; giữ nguyên index và work đã có, T04 chưa stage/commit/push. Dừng trước T05.
+Status: **T01–T05 hoàn tất; T06–T18 pending**. Owner giao task tiếp theo (T05) ngày 2026-10-21. Git sạch khi bắt đầu, HEAD `9492004` đã chứa T04; T05 chưa stage/commit/push. Dừng trước T06.
 
 ## Cách nhận và bàn giao task
 
@@ -174,7 +174,74 @@ Check scope: **H** = hai harness commands trong PROJECT. **C** = applicable lock
 
   Giới hạn: T04 chỉ hoàn tất catalog/public metadata thuộc CI-01/04 và product maintenance thuộc AO-01/06, không claim toàn capability. Active là hiển thị công khai; UI ghi **Chưa nhận đơn**, không số tồn kho hoặc Buy button giả. Navigation chỉ giữ view params, tối đa 4096, TTL 600s và mất khi restart; permissions/product/price luôn đọc DB. Staff phải giữ public fields không chứa secrets; actual encrypted payload/stock thuộc T05/T10 và checkout thuộc T06. Telegram sends chỉ mock; chưa Telegram test/live, hosted CI, production/restore hoặc payments/refunds. Không commit/push. **T04 hoàn tất; T05 pending, cần giao riêng.**
 
-- [ ] **T05 — Encrypted inventory và atomic import.** Depends: T04. Spec: CI-03, CI-04, CI-06; ADR-0003. Scope: unit storage/crypto/HMAC, CSV/TXT upload import, retire permissions và low-stock query/signal. Acceptance: duplicate/invalid/oversize batch rollback; encryption fail-closed; two-connection import không trùng; secret không lọt logs/errors. Verify: C + D + focused security review. Reservation/order FKs và last-key checkout race thêm ở T06/T08, không tạo fake orders/schema sớm để test T05.
+- [x] **T05 — Encrypted inventory và atomic import.** Depends: T04. Spec: CI-03, CI-04, CI-06; ADR-0003. Scope: unit storage/crypto/HMAC, CSV/TXT upload import, retire permissions và low-stock query/signal. Acceptance: duplicate/invalid/oversize batch rollback; encryption fail-closed; two-connection import không trùng; secret không lọt logs/errors. Verify: C + D + focused security review. Reservation/order FKs và last-key checkout race thêm ở T06/T08, không tạo fake orders/schema sớm để test T05.
+
+  - [x] **T05.a — Typed key/license import và AEAD.** Domain payloads/parser giới hạn UTF-8 CSV/TXT 1 MiB, 1.000 rows; giữ nguyên key material, row/error-code không echo secrets. Application-owned crypto port, AES-GCM 256-bit/96-bit nonce, AAD stable product/SKU/unit/type; separate HMAC dedup key; versioned environment settings fail closed. Unit tests wrong type, bounds, duplicate semantics, tamper/wrong AAD/key và old-version read; không expose decrypt/export use case trước entitlement.
+  - [x] **T05.b — Atomic protected persistence.** Migration mới cho units và actor-bound encrypted import/retire confirmations; chỉ AVAILABLE/RETIRED trước reservation slice. Current permission, unique per-SKU fingerprint, two-connection races, cancel/expiry/replay, immutable identity/ciphertext và audit/commit rollback. Pending import chỉ chứa encrypted envelopes, chưa thành stock; clear pending envelopes khi apply/cancel. Không sửa migrations cũ hoặc dựng orders sớm.
+  - [x] **T05.c — Telegram upload/stock/retire/low-stock.** Staff có inventory.manage upload TXT/CSV qua document caption; bounded memory-only download từ Telegram SDK, không arbitrary URL/path hoặc plaintext temp file. Server-side confirmation, unit-ID retirement, secret-free stock pagination và committed low-stock query/signal. Reuse current ingress/private/rate controls và admin navigation; mọi network I/O ngoài UoW. Wiring/config/callers/tests cập nhật cùng nhau.
+  - [x] **T05.d — Review và completion evidence.** C + D + H, clean/T04 upgrade + metadata drift, failure/race/security tests, build/isolated wheel, dependency audit, final diff/docs/status. Cập nhật README/PROJECT/DATABASE/SECURITY/catalog spec; dừng trước T06, không live Telegram/payments/deployment.
+
+  Threat focus: unauthorized upload/download/decrypt, malicious metadata/encoding/oversize rows, duplicate material và reversed-order concurrent imports, partial insert/audit/commit failure, cross-actor/revoked/stale confirmations, ciphertext/AAD swapping, missing/wrong/rotated keys và log/exception leaks. T05 sở hữu finite UNIQUE_KEY/LICENSE secrets; file/reusable/manual secret payloads thuộc T10. Low-stock trả committed counts/flag, chưa tự gửi alerts hoặc bật checkout.
+
+
+  Hoàn tất local ngày **2026-10-21**. Files: domain `models/inventory.py`; application parser,
+  `ports/inventory.py`, `ports/inventory_crypto.py`, `services/inventory.py`, UoW port;
+  infrastructure `crypto.py`, versioned InventorySettings, inventory models/repository/UoW,
+  schema head và frozen `0005_inventory.py`/Alembic wiring. Telegram: `admin/inventory.py`,
+  Inventory menu, guard, bootstrap và mọi dispatcher/polling callers. Tests: shared fake
+  inventory/document helpers, parser/crypto/settings/startup/upload contracts, PostgreSQL
+  import/failure/read/retire/bot suites và migration/polling regressions. Docs: README,
+  PROJECT/ARCHITECTURE/CONVENTIONS/DATABASE/SECURITY, catalog/admin specs, `.env.example`
+  và ledger. Manifest/lock chỉ thêm cryptography + cffi/pycparser; old versions giữ nguyên.
+  Không thay old migrations, ADRs, AGENTS, original task, upstream skills hoặc Git index/history.
+
+  Environment: Windows; CPython **3.12.15**, uv/uv_build **0.13.4**, Pytest **9.1.1**,
+  Ruff **0.17.1**, PostgreSQL **18.6** qua isolated service/digest T02, Docker Engine **29.6.2**.
+  Cryptography **50.0.2**, cffi **2.1.1**, pycparser **3.11**; reviewed PyPI wheels, hash-pinned
+  lock, `--no-build`, không source build bên thứ ba. System Python **3.11.9** chạy riêng H.
+  Commands dùng uv workspace như README; các dòng PASS có exit **0**:
+
+  | Command/check | Kết quả thực tế |
+  | --- | --- |
+  | `uv lock --check`; `uv sync --locked --no-build` | PASS; 50 resolved, 49 installed dependencies checked; mọi prior locked version giữ nguyên. |
+  | `uv run --no-sync ruff check .`; `uv run --no-sync ruff format --check .` | PASS; 136 owned Python files formatted, không nới rules hoặc sửa upstream. |
+  | `uv run --no-sync python scripts/check_architecture.py` | PASS; domain/application/adapters/import matrix. |
+  | `uv run --no-sync pytest tests/unit tests/contract tests/architecture -q --tb=short` | **256 passed**, final 20.51s; gồm toàn bộ T03/T04 regressions và 45 T05 cases. |
+  | `uv run --no-sync pytest tests/integration -q --tb=short` | **86 passed**, final 48.33s, real PostgreSQL 18.6; explicit APP_ENV/test DSN/DB marker, schema per test. Không SQLite/mock database hoặc skip tests. |
+  | Domain/crypto/config acceptance | PASS; exact case/space/Unicode preservation, typed license/key, invalid UTF-8/control/header/column/multiline/size/rows; fresh nonce, wrong key/AAD/type/nonce/ciphertext từ chối; old-version read/dedup stable; missing/malformed/reused/changed/removed keys fail closed. |
+  | Stock/race/failure acceptance trong D | PASS; full 1.000-row batch, pending không tính stock, per-SKU uniqueness gồm retired material, reverse-order parallel confirms với **2 physical DB connections**, replay/retire/cancel/expiry/revoked actor, immediate/deferred audit rollback và direct-SQL immutable/type/unique constraints. |
+  | PostgreSQL dispatcher/startup trong D | PASS; upload/confirm/pages/retire/cancel/low-stock và revoke ngay trong download; mọi mock download/send/edit/ack assert không checked-out DB connection. Key mismatch fail trước Bot initialization, resources đóng sau failure. |
+  | Migration tests trong D | PASS; head `0005_inventory`, drift rỗng; clean/base/T02/T03 và T04→head, giữ product identity/price/audit/pending catalog confirmation hoạt động. Không sửa `0001_runtime`–`0004_catalog`. |
+  | `uv build --no-sources`; wheel/sdist inspection | PASS; sdist→wheel 0.1.0, đúng **57** package Python sources khớp bytes working tree; không tools/cache/venv/env/skills. Migrations vẫn chạy từ checkout theo README. |
+  | `uv export --locked --no-dev --no-emit-project --format requirements-txt --output-file .cache/t05/runtime-requirements.txt` | PASS; runtime requirements/hash artifact ignored, vẫn một lockfile. |
+  | `uv venv --python .venv/Scripts/python.exe .cache/t05-wheel-runtime`; `uv pip install --python .cache/t05-wheel-runtime/Scripts/python.exe --require-hashes --no-build -r .cache/t05/runtime-requirements.txt` | PASS; 37 runtime deps, không dev deps; wheel cài `--no-index --no-deps`. Offline attempt thiếu cached crypto artifacts nên fail; đã cài locked hashes từ PyPI, không đổi lock/hash hoặc bật source builds. |
+  | `.cache/t05-wheel-runtime/Scripts/python.exe -I .cache/t05/runtime_smoke.py`; `uv pip check --python .cache/t05-wheel-runtime/Scripts/python.exe` | PASS; all modules từ isolated wheel, settings poisoned/socket-connect denied, không Pytest; native AES-GCM round-trip; 38 packages compatible. |
+  | `uv audit --locked` | PASS; 49 third-party packages không có known vulnerabilities/adverse statuses tại lúc chạy. Native command experimental; chưa là full source/container/production audit. |
+  | `python scripts/verify_harness.py`; `python -B -m unittest discover -s tests -p test_harness.py -v` | PASS; six upstream skills/hash/layout giữ nguyên; **6 tests, OK**, system Python độc lập app. |
+  | `git diff --check`; document/status audit | PASS; 9 changed Markdown files, 45 local links hợp lệ, fences đóng đủ; chỉ T01–T05 và bốn T05 children done. Index rỗng, protected baseline không đổi, HEAD vẫn `9492004`; T06 pending. |
+
+  Review/evidence quality: focused tests RED trước implementation; callback error regression
+  **1 failed, 10 passed** trước fix không nuốt InventoryImportError; JSON-array keyring regression
+  **1 failed, 10 passed** trước strict-object fix; cancel-applied regression **1 failed, 15 passed**
+  trước fix từ chối undo. Mutation probes bỏ current confirm permission, bỏ audit, nới byte cap
+  bị tests bắt lần lượt **1**, **4**, **1 failed**; source khôi phục nguyên bytes rồi final C256/D86.
+  Self-review theo code-review-and-quality/security đi qua input→permission→seal→pending→locks/
+  unique/audit/commit→network; chưa phát hiện Critical/High còn mở trong scope.
+
+  Cleanup: verify container labels project `telebotshop-t02`, service `postgres-test`, absolute
+  workspace. Sau final tests, query có **0 `tbs_test_*` schemas, 0 other test connections**;
+  stop riêng service đã start cho T05 thành công. Không xóa DB/volume, không dừng Docker Desktop.
+
+  Giới hạn: finite UNIQUE_KEY/LICENSE storage/import và crypto/low-stock parts của CI-03/04/06
+  được chứng minh; không claim toàn CI hoặc release. Application crypto port không có decrypt;
+  entitled read/delivery nối ở T09/T10. File/reusable/manual secrets thuộc T10, reservation/orders
+  và last-key race thuộc T06/T08. Low-stock là committed query/flag, chưa auto-dispatch alert;
+  customer UI vẫn **Chưa nhận đơn**. Key-registration lock serialize inventory writes; đo
+  contention trước khi thu hẹp. Không bulk re-encryption/removal/restore; mất key không phục
+  hồi kho chỉ từ DB. Expired encrypted pending envelopes/audit chưa có retention job khi chưa
+  có Owner policy. Telegram API/download chỉ mock; chưa real Telegram/test Stars, hosted CI,
+  Linux/macOS runtime, production image/deploy, backup/restore hoặc payments/refunds.
+  Không stage/commit/push. **T05 hoàn tất; T06 pending, cần giao riêng.**
 
 ## Phase 2
 
