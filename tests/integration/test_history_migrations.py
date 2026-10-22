@@ -42,9 +42,11 @@ async def test_t11_upgrade_and_empty_downgrade_preserve_t10_work(database, state
         await connection.run_sync(downgrade)
         await connection.run_sync(upgrade)
         for table, rows in before.items():
+            columns = ", ".join(rows[0]) if rows else "*"
             assert (
-                await connection.execute(text(f"SELECT * FROM {table}"))
+                await connection.execute(text(f"SELECT {columns} FROM {table}"))
             ).mappings().all() == rows
+        assert await connection.scalar(text("SELECT refund_intent_id FROM fulfillments")) is None
 
 
 @pytest.mark.asyncio

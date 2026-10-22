@@ -7,13 +7,20 @@ from telebotshop.domain.models.inventory import (
     SecretPayload,
 )
 from telebotshop.domain.models.manual import ManualEvidence, ManualEvidenceContext
+from telebotshop.domain.models.refunds import RefundEvidence, RefundEvidenceContext
 from telebotshop.domain.models.resources import ResourceContext, ResourcePayload
 from telebotshop.domain.models.support import SupportMessage, SupportMessageContext
 
 type CipherContext = (
-    InventoryContext | ResourceContext | ManualEvidenceContext | SupportMessageContext
+    InventoryContext
+    | ResourceContext
+    | ManualEvidenceContext
+    | SupportMessageContext
+    | RefundEvidenceContext
 )
-type CipherPayload = SecretPayload | ResourcePayload | ManualEvidence | SupportMessage
+type CipherPayload = (
+    SecretPayload | ResourcePayload | ManualEvidence | SupportMessage | RefundEvidence
+)
 
 
 class InventoryCipher(Protocol):

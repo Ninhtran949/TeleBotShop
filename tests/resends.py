@@ -31,13 +31,15 @@ def resend_service(engine, sender, *, cipher=None, factory=None):
     return ResendService(factory or partial(unit_of_work, engine), cipher or fake_cipher(), sender)
 
 
-async def delivered_order(engine, kind=ProductType.UNIQUE_KEY, *, document=False):
+async def delivered_order(
+    engine, kind=ProductType.UNIQUE_KEY, *, document=False, pre_refunds=False
+):
     if kind in FINITE_TYPES:
-        order, work_id = await paid_work(engine, kind=kind)
+        order, work_id = await paid_work(engine, kind=kind, pre_refunds=pre_refunds)
     else:
         product, _ = await resource_product(engine, kind, document=document)
         order = await order_service(engine).create(101, product.id, uuid4())
-        await payment_service(engine).record(receipt(order))
+        await payment_service(engine, pre_refunds=pre_refunds).record(receipt(order))
         async with engine.connect() as connection:
             work_id = await connection.scalar(text("SELECT id FROM fulfillments"))
     sender = RecordingSender(engine)

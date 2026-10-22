@@ -2,7 +2,7 @@
 
 T02 dùng PostgreSQL **18.6**, SQLAlchemy **2.0.55** Async + asyncpg **0.32.0** và
 Alembic **1.20.0**. T03 thêm identity/access/settings và audit repositories bằng SQLAlchemy
-Core tables; không trả ORM/session ra application. Head hiện tại **`0012_support`**;
+Core tables; không trả ORM/session ra application. Head hiện tại **`0013_refunds`**;
 `0001_runtime` giữ nguyên, `0002_identity` thêm identity/Owner/audit, `0003_access` thêm
 explicit grants, settings và confirmation. T04 thêm `0004_catalog`; T05 thêm encrypted
 inventory/actions/key verifiers; T06 thêm orders/items/invoice intents và finite reservations.
@@ -14,6 +14,8 @@ revisions 0001–0009 giữ nguyên.
 T11 thêm resend actions và hai history indexes; không sửa revisions 0001–0010.
 T12 thêm support tickets/messages/actions và orders(id,buyer_id) unique để giữ linked-order
 ownership bằng composite FK; không sửa revisions 0001–0011 hoặc payment/delivery state.
+T13 thêm refund intents/receipts/verifications và owned hold pointer; orders nhận REFUNDED.
+Revision 0001–0012 giữ nguyên; chỉ revision mới mở rộng guarded transitions.
 
 | Tables | Contract |
 | --- | --- |
@@ -37,6 +39,9 @@ ownership bằng composite FK; không sửa revisions 0001–0011 hoặc payment
 | `support_tickets` | Customer/request unique, GENERAL/PAYMENT/DELIVERY, OPEN/CLOSED, optional immutable own-order link, assignee và monotonic version; indexed customer/open/assignee queues. |
 | `support_messages` | Immutable encrypted body/nonce/key version, ticket/author/staff-bound context, author/request unique và indexed bounded thread; insert locks OPEN ticket và advances version. |
 | `support_actions` | Actor/mode/ticket/version-bound assignment/close, 10-minute TTL, pending/applied/cancelled; atomic matching ticket mutation và audit. |
+| `refund_intents` | Immutable payment/actor/snapshot/expiry/encrypted decision, PENDING/SENDING/SUCCEEDED/FAILED/UNCERTAIN/CANCELLED; một active hoặc succeeded intent/payment, window/result/provenance và observed outcome. |
+| `refund_receipts` | Immutable bounded EVENT/TRANSACTION evidence, charge/digest dedup, exact currency/amount/payload/provider match trước áp dụng; giữ unmatched tới sau payment. |
+| `payment_verifications` | Immutable incoming transaction proof, payment PK, actual actor/payer/amount/transaction time; amount/known payer phải khớp canonical Stars receipt. |
 | `invoice_intents` | Một opaque payload/order, durable unique attempt, READY/SENDING/SENT/REJECTED/UNCERTAIN/CANCELLED; no automatic resend, không phải payment receipt. |
 | `pre_checkout_approvals` | Order PK/FK, unique opaque query ID, approved_at theo DB time; chặn UPDATE/DELETE/TRUNCATE. Một approval/order, giữ qua timeout/expiry. |
 | `payments` | Append-only bounded financial receipt, unique Telegram charge, nullable payer/order, MATCHED/REQUIRES_REVIEW + reason; partial unique primary MATCHED/order, không cấm extra receipts. |
@@ -297,7 +302,8 @@ không overwrite state mới hoặc xóa evidence. Retry giữ nguyên unit, bud
 Recovery chọn expired candidates theo DB clock, lock orders SKIP LOCKED rồi work, recheck lease.
 Expired CLAIMED→ABANDONED + READY; expired SENDING→UNCERTAIN + attention/audit. T13 hold serialize
 theo order→work; hold thắng trước prepare chặn decrypt/send, SENDING/UNCERTAIN chặn auto hold/refund.
-Chưa có public setter/refund/reconcile operation. Alerts gồm attention/audit + sanitized warning.
+Tại mốc T09 chưa có refund operation; T13 thêm owned hold/privileged reconciliation bên dưới.
+Alerts gồm attention/audit + sanitized warning, notification delivery T14.
 
 Upgrade preservation so sánh toàn bộ old columns/rows của T08, sau đó claim work thật; metadata
 drift và downgrade/re-upgrade có tests. Downgrade 9→8 chỉ khi chưa có attempts/observations,
@@ -395,3 +401,32 @@ Migration tests nâng từ 0011 với resend PENDING/SENDING/SENT/UNCERTAIN và 
 allocation/work/history. Downgrade chỉ cho schema chưa có ticket; có history thì từ chối,
 không xóa để vượt guard. Native two-connection close/reply và duplicate action/message
 tests dùng database marker/schema cô lập. Ticket operations không gọi network/refund/delivery.
+
+## T13 refund ledger và owned hold
+
+Refund intent giữ encrypted reference ≤500 UTF-8 bytes, payment/action/key-version AAD,
+snapshot order/work/attempt/send-count/hold/active resend, 10-minute confirmation. Partial
+unique payment index chặn duplicate PENDING/SENDING/UNCERTAIN/SUCCEEDED. Initial PENDING
+chưa hold; start serialize access→charge→order→work→resend→intent, recheck current actor,
+grant và exact snapshot, commit SENDING + fulfillments.refund_intent_id/hold + audit trước API.
+Primary work query không trả owned refund pointer hoặc plaintext ra domain/transport.
+
+Completion lưu positive SUCCEEDED/known FAILED/UNCERTAIN trong UoW khác. Primary success
+atomic cùng REFUNDED và giữ owned hold; extra refund không sửa order/work chính. Known
+failure chỉ release hold của intent đó. Unknown/lost-ACK/deadline không release/retry. Late
+API success cùng intent có thể ghi positive fact; late failure không xóa uncertainty/success.
+Work/attempt pair, send count, identity, allocation và manual constraints vẫn được giữ khi
+order REFUNDED; chỉ order-status coupling được mở bằng verified successful primary refund.
+
+Invoice/payment history vẫn immutable. Authenticated refund receipt lưu trước offset/ack,
+kể cả unknown charge; apply trong cùng payment UoW khi receipt tới trước. Event sai full
+amount/currency/payload/provider được giữ nhưng không áp dụng. External refund khi delivery
+in-flight giữ history/hold, late result thêm observation, không mark DELIVERED lại. Explicit
+operator uncertainty decision sau lease chỉ cho phép refund, không restock/clear/send lại.
+
+0013 sửa các predecessor functions bằng exact occurrence-checked replacements; mismatch
+fail migration. Native clean/upgrade/downgrade/reupgrade kiểm tra function definitions và
+old rows nguyên vẹn. Downgrade từ chối khi có intent/receipt/verification, không xóa financial
+evidence để vượt guard. Test historical seeding dùng explicit pre_refunds UoW seam vì schema
+trước T13 chưa có refund receipts; mọi financial writes vẫn PostgreSQL thật, T13 tests dùng
+repo/constraints thật. No runtime schema probing/fallback để chạy trên schema cũ.

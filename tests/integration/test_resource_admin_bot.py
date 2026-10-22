@@ -19,6 +19,7 @@ from tests.inventory import inventory_service
 from tests.manual import manual_service
 from tests.orders import order_service
 from tests.payments import payment_service, receipt
+from tests.refunds import refund_service
 from tests.resends import RecordingSender, resend_service
 from tests.resources import resource_product, resource_service
 from tests.support import support_service
@@ -58,6 +59,7 @@ async def test_runtime_resource_delivery_and_manual_completion_close_uow_before_
         resources=resource_service(engine),
         manual=manual_service(engine),
         support=support_service(engine),
+        refunds=refund_service(engine),
         history=HistoryService(factory),
         resends=resend_service(engine, RecordingSender(engine)),
     )

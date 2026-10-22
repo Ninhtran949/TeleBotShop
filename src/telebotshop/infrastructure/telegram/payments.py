@@ -7,7 +7,9 @@ from aiogram.types import Message, Update
 from aiogram.utils.backoff import BackoffConfig
 
 from telebotshop.application.ports.payments import PaymentReceiver
-from telebotshop.domain.models.payments import PaymentReceipt, PaymentResult
+from telebotshop.application.ports.refunds import RefundReceiver
+from telebotshop.domain.models.payments import PaymentReceipt
+from telebotshop.infrastructure.telegram.refunds import refund_from_message
 
 
 def receipt_from_message(message: Message) -> PaymentReceipt:
@@ -29,20 +31,26 @@ def receipt_from_message(message: Message) -> PaymentReceipt:
     )
 
 
-def create_payment_router(record: PaymentReceiver) -> Router:
+def create_payment_router(record: PaymentReceiver, refunded: RefundReceiver) -> Router:
     router = Router(name="payments")
 
-    @router.message(F.successful_payment)
-    async def successful_payment(message: Message) -> PaymentResult:
-        return await record(receipt_from_message(message))
+    @router.message(F.successful_payment | F.refunded_payment)
+    async def financial_receipt(message: Message):
+        result = None
+        if message.successful_payment is not None:
+            result = await record(receipt_from_message(message))
+        if message.refunded_payment is not None:
+            result = await refunded(refund_from_message(message))
+        return result
 
     return router
 
 
 class PaymentsDispatcher(Dispatcher):
-    def __init__(self, record: PaymentReceiver) -> None:
+    def __init__(self, record: PaymentReceiver, refunded: RefundReceiver) -> None:
         super().__init__(disable_fsm=True)
         self.record_payment = record
+        self.record_refund = refunded
 
     async def _listen_updates(
         self,
@@ -63,4 +71,6 @@ class PaymentsDispatcher(Dispatcher):
             async for update in updates:
                 if update.message is not None and update.message.successful_payment is not None:
                     await self.record_payment(receipt_from_message(update.message))
+                if update.message is not None and update.message.refunded_payment is not None:
+                    await self.record_refund(refund_from_message(update.message))
                 yield update

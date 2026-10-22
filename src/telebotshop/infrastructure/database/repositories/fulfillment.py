@@ -48,6 +48,12 @@ def fulfillment_from_row(row: RowMapping) -> Fulfillment:
     )
 
 
+def fulfillment_query():
+    names = [field.name for field in fields(CommittedWork)]
+    names += ["state", "active_attempt_id", "due_at", "send_count", "hold"]
+    return select(*(fulfillments.c[name] for name in names))
+
+
 class SqlFulfillmentRepository(FulfillmentRepository):
     def __init__(self, session: AsyncSession) -> None:
         self.session = session
@@ -56,7 +62,7 @@ class SqlFulfillmentRepository(FulfillmentRepository):
         row = (
             (
                 await self.session.execute(
-                    select(fulfillments)
+                    fulfillment_query()
                     .where(
                         fulfillments.c.state.in_([DeliveryState.READY, DeliveryState.RETRY_WAIT]),
                         fulfillments.c.due_at <= now,
@@ -73,7 +79,7 @@ class SqlFulfillmentRepository(FulfillmentRepository):
         return None if row is None else fulfillment_from_row(row)
 
     async def get(self, work_id: UUID, *, for_update: bool = False) -> Fulfillment | None:
-        query = select(fulfillments).where(fulfillments.c.id == work_id)
+        query = fulfillment_query().where(fulfillments.c.id == work_id)
         if for_update:
             query = query.with_for_update()
         row = (await self.session.execute(query)).mappings().one_or_none()

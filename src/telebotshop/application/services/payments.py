@@ -1,6 +1,7 @@
 from uuid import uuid4
 
 from telebotshop.application.ports.uow import UnitOfWorkFactory
+from telebotshop.application.services.refund_receipts import apply_received_refund
 from telebotshop.domain.models.inventory import FINITE_TYPES
 from telebotshop.domain.models.orders import OrderAttention, OrderStatus
 from telebotshop.domain.models.payments import (
@@ -70,6 +71,7 @@ class PaymentService:
             )
             await work.payments.save(payment)
             if reason is not None:
+                await apply_received_refund(work, payment)
                 await work.commit()
                 return PaymentResult(payment.id, PaymentOutcome.REQUIRES_REVIEW, payment.order_id)
 
@@ -101,5 +103,6 @@ class PaymentService:
                     )
                 )
             await work.orders.audit(order, "payment.matched" if available else "payment.attention")
+            await apply_received_refund(work, payment)
             await work.commit()
             return PaymentResult(payment.id, PaymentOutcome.MATCHED, order.id, attention)

@@ -110,6 +110,12 @@ def message_update(
     )
 
 
+def refund_update(**kwargs) -> Update:
+    payload = payment_update(**kwargs).model_dump(by_alias=True, exclude_none=True)
+    payload["message"]["refunded_payment"] = payload["message"].pop("successful_payment")
+    return Update.model_validate(payload)
+
+
 def callback_update(
     data: str,
     *,

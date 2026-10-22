@@ -22,6 +22,7 @@ from telebotshop.domain.models.inventory import (
     payload_from_record,
 )
 from telebotshop.domain.models.manual import ManualEvidenceContext, evidence_from_record
+from telebotshop.domain.models.refunds import RefundEvidenceContext, refund_evidence_from_record
 from telebotshop.domain.models.resources import ResourceContext, resource_payload_from_record
 from telebotshop.domain.models.support import SupportMessageContext, support_message_from_record
 
@@ -63,23 +64,31 @@ class AesGcmInventoryCipher(InventoryCipher):
         return self._proof
 
     @staticmethod
+    def _decode(context: CipherContext, record: object) -> CipherPayload:
+        if isinstance(context, RefundEvidenceContext):
+            return refund_evidence_from_record(record)
+        if isinstance(context, SupportMessageContext):
+            return support_message_from_record(record)
+        if isinstance(context, ManualEvidenceContext):
+            return evidence_from_record(record)
+        if isinstance(context, InventoryContext):
+            return payload_from_record(context.kind, record)
+        return resource_payload_from_record(context.kind, record)
+
+    @staticmethod
     def _record(context: CipherContext, payload: CipherPayload) -> dict[str, str]:
         record = asdict(payload)
-        decoded = (
-            support_message_from_record(record)
-            if isinstance(context, SupportMessageContext)
-            else evidence_from_record(record)
-            if isinstance(context, ManualEvidenceContext)
-            else payload_from_record(context.kind, record)
-            if isinstance(context, InventoryContext)
-            else resource_payload_from_record(context.kind, record)
-        )
+        decoded = AesGcmInventoryCipher._decode(context, record)
         if type(decoded) is not type(payload):
             raise InvalidInput("Invalid encrypted payload type")
         return record
 
     @staticmethod
     def _aad(context: CipherContext, version: int) -> bytes:
+        if isinstance(context, RefundEvidenceContext):
+            return encode(
+                ["refund-evidence:v1", str(context.payment_id), str(context.action_id), version]
+            )
         if isinstance(context, SupportMessageContext):
             return encode(
                 [
@@ -149,14 +158,6 @@ class AesGcmInventoryCipher(InventoryCipher):
                 sealed.nonce, sealed.ciphertext, self._aad(context, sealed.key_version)
             )
             record = json.loads(plaintext)
-            return (
-                support_message_from_record(record)
-                if isinstance(context, SupportMessageContext)
-                else evidence_from_record(record)
-                if isinstance(context, ManualEvidenceContext)
-                else payload_from_record(context.kind, record)
-                if isinstance(context, InventoryContext)
-                else resource_payload_from_record(context.kind, record)
-            )
+            return self._decode(context, record)
         except (InvalidTag, KeyError, ValueError, TypeError, InvalidInput):
             raise InventoryCryptoError("Inventory decryption failed") from None

@@ -17,6 +17,7 @@ class OrderStatus(StrEnum):
     FULFILLING = "FULFILLING"
     DELIVERED = "DELIVERED"
     FAILED = "FAILED"
+    REFUNDED = "REFUNDED"
 
 
 class OrderAttention(StrEnum):

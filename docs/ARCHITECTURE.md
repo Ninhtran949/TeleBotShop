@@ -2,7 +2,7 @@
 
 ## Trạng thái và lựa chọn
 
-Đây là baseline thiết kế được SE/SA chọn theo ủy quyền của Owner. T01–T12 đã triển khai toolchain/runtime, HTTP health, PostgreSQL/UoW/migrations, identity/permission/audit, public catalog/admin, encrypted inventory, orders/invoice intents và serialized pre-checkout approval, durable receipt, paid allocation/resource entitlement và READY intent. Development polling dùng checker thật và ghi receipt trước offset; worker dispatch đủ năm loại, manual có staff completion; history/resend và encrypted scoped support tickets đã có, public Buy/production webhook chưa có. Yêu cầu nghiệp vụ gốc ở [`task.md`](../task.md); lý do chọn kiến trúc ở [ADR-0001](adr/0001-modular-monolith.md). Thiết kế chỉ dựng package/file khi một slice cần dùng, không tạo toàn bộ cây trống.
+Đây là baseline thiết kế được SE/SA chọn theo ủy quyền của Owner. T01–T13 đã triển khai toolchain/runtime, HTTP health, PostgreSQL/UoW/migrations, identity/permission/audit, public catalog/admin, encrypted inventory, orders/invoice intents và serialized pre-checkout approval, durable receipt, paid allocation/resource entitlement và READY intent. Development polling dùng checker thật và ghi payment/refund receipts trước offset; worker dispatch đủ năm loại, manual có staff completion; history/resend, encrypted scoped support tickets và confirmed full refund/reconciliation đã có, public Buy/production webhook chưa có. Yêu cầu nghiệp vụ gốc ở [`task.md`](../task.md); lý do chọn kiến trúc ở [ADR-0001](adr/0001-modular-monolith.md). Thiết kế chỉ dựng package/file khi một slice cần dùng, không tạo toàn bộ cây trống.
 
 Chọn **modular monolith**, một codebase/image, PostgreSQL là nguồn dữ liệu bền vững. Production dự kiến có hai process từ cùng image: HTTP ingress và fulfillment worker. Local polling chỉ là adapter development thay thế webhook, không chạy cùng webhook cho cùng bot.
 
@@ -168,7 +168,26 @@ Không có Telegram call trong UoW hoặc thay đổi payment/work/allocation t�
 Bootstrap load optional public terms file một lần trước Bot/DB, inject PublicTerms snapshot
 vào SupportService; thiếu cấu hình trả chưa sẵn sàng, file lỗi/placeholder fail startup an toàn.
 Router support chỉ validate/render private commands/callbacks; phản hồi lưu inbox, không
-push notification. Checkout consent/live routing T14 và refund/reconciliation T13 còn riêng.
+push notification. Checkout consent/live routing còn T14; refund/reconciliation T13 là use case riêng.
+
+T13 RefundService sở hữu current payments.refund, verified charge, encrypted decision và
+actor/payment/state-snapshot/expiry-bound intent. Access→charge→order→work→resend→intent
+locks serialize với financial intake/worker/resend/manual; begin commit owned hold + SENDING
+trước RefundGateway.refund, completion/audit dùng UoW khác. No automatic network retry.
+Primary success mới đổi REFUNDED; extra charge không đổi entitlement hợp lệ bằng charge khác.
+
+RefundGateway adapter chỉ map validated bounded Bot API result/transaction evidence; admin
+router parse/render, không quyết định tiền/quyền. `refund_receipts.apply_received_refund`
+được PaymentService và RefundService dùng trong UoW để xử lý event tới trước/sau payment.
+System receipt ledger giữ provenance; privileged verify/reconcile audit dùng actual actor.
+Cipher thêm refund-evidence:v1 gắn payment/action/key version; previous contexts giữ nguyên.
+Fulfillment query chỉ đọc DTO fields, không expose owned refund pointer ra domain delivery.
+
+SENDING/UNCERTAIN không tự mở lại. Positive refund evidence đóng ledger thành SUCCEEDED;
+explicit uncertainty decision chỉ cho phép refund sau hết delivery/resend lease, giữ nguyên
+attempts/observations và uncertainty, không tuyên bố thu hồi tài nguyên. Authenticated refund
+event có thể đến khi delivery đang gửi: giữ hold/order REFUNDED và chỉ lưu late observation.
+All checkout/live/notification routing vẫn T14; không suy external acceptance từ local tests.
 
 ## Ma trận import bắt buộc
 

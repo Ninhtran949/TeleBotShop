@@ -13,6 +13,7 @@ from telebotshop.infrastructure.database.repositories.inventory import SqlInvent
 from telebotshop.infrastructure.database.repositories.manual import SqlManualRepository
 from telebotshop.infrastructure.database.repositories.orders import SqlOrderRepository
 from telebotshop.infrastructure.database.repositories.payments import SqlPaymentRepository
+from telebotshop.infrastructure.database.repositories.refunds import SqlRefundRepository
 from telebotshop.infrastructure.database.repositories.resources import SqlResourceRepository
 from telebotshop.infrastructure.database.repositories.support import SqlSupportRepository
 
@@ -31,6 +32,7 @@ class SqlAlchemyUnitOfWork(UnitOfWork):
         self.manual = SqlManualRepository(session)
         self.history = SqlHistoryRepository(session)
         self.support = SqlSupportRepository(session)
+        self.refunds = SqlRefundRepository(session)
 
     async def commit(self) -> None:
         await self.session.commit()

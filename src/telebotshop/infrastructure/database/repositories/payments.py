@@ -25,6 +25,16 @@ from telebotshop.infrastructure.database.models.payments import (
 )
 
 
+def stored_payment(row) -> StoredPayment:
+    return StoredPayment(
+        row["id"],
+        PaymentReceipt(**{f.name: row[f.name] for f in fields(PaymentReceipt)}),
+        PaymentStatus(row["status"]),
+        row["order_id"],
+        ReviewReason(row["review_reason"]) if row["review_reason"] else None,
+    )
+
+
 class SqlPaymentRepository(PaymentRepository):
     def __init__(self, session: AsyncSession) -> None:
         self.session = session
@@ -48,13 +58,7 @@ class SqlPaymentRepository(PaymentRepository):
         )
         if row is None:
             return None
-        return StoredPayment(
-            row["id"],
-            PaymentReceipt(**{f.name: row[f.name] for f in fields(PaymentReceipt)}),
-            PaymentStatus(row["status"]),
-            row["order_id"],
-            ReviewReason(row["review_reason"]) if row["review_reason"] else None,
-        )
+        return stored_payment(row)
 
     async def save(self, payment: StoredPayment) -> None:
         await self.session.execute(

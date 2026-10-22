@@ -32,7 +32,7 @@ def fulfillment_service(engine, sender, *, policy=None):
     )
 
 
-async def paid_work(engine, *, kind=ProductType.UNIQUE_KEY):
+async def paid_work(engine, *, kind=ProductType.UNIQUE_KEY, pre_refunds=False):
     if kind == ProductType.UNIQUE_KEY:
         product = await setup_orders(engine)
     else:
@@ -56,7 +56,7 @@ async def paid_work(engine, *, kind=ProductType.UNIQUE_KEY):
             CustomerIdentity(101, None, "Fake customer")
         )
     order = await order_service(engine).create(101, product.id, uuid4())
-    await payment_service(engine).record(receipt(order))
+    await payment_service(engine, pre_refunds=pre_refunds).record(receipt(order))
     async with engine.connect() as connection:
         work_id = await connection.scalar(text("SELECT id FROM fulfillments"))
     return order, work_id

@@ -19,6 +19,7 @@ from tests.manual import manual_service
 from tests.orders import order_service, setup_orders
 from tests.payments import payment_service
 from tests.pre_checkout import payable_invoice
+from tests.refunds import refund_service
 from tests.resends import RecordingSender, resend_service
 from tests.resources import resource_service
 from tests.support import support_service
@@ -45,6 +46,7 @@ async def test_receipt_commit_failure_returns_http_error_and_redelivery_commits_
         resources=resource_service(engine),
         manual=manual_service(engine),
         support=support_service(engine),
+        refunds=refund_service(engine),
         history=HistoryService(factory),
         resends=resend_service(engine, RecordingSender(engine)),
     )
@@ -113,6 +115,7 @@ async def test_real_dispatcher_approval_then_receipt_uses_server_snapshots_witho
         resources=resource_service(engine),
         manual=manual_service(engine),
         support=support_service(engine),
+        refunds=refund_service(engine),
         history=HistoryService(factory),
         resends=resend_service(engine, RecordingSender(engine)),
     )

@@ -143,6 +143,9 @@ class FulfillmentService:
                 return False
             order, fulfillment, attempt = loaded
             await work.fulfillment.observe(claim, result)
+            if order.status == OrderStatus.REFUNDED:
+                await work.commit()
+                return False
             if (
                 fulfillment.active_attempt_id != claim.attempt_id
                 or fulfillment.state != DeliveryState.SENDING

@@ -18,6 +18,7 @@ from telebotshop.admin.catalog import create_catalog_admin_router
 from telebotshop.admin.identity import create_admin_router
 from telebotshop.admin.inventory import create_inventory_admin_router
 from telebotshop.admin.manual import create_manual_admin_router
+from telebotshop.admin.refunds import create_refund_admin_router
 from telebotshop.admin.resources import create_resource_admin_router
 from telebotshop.api.health import create_api
 from telebotshop.application.services.access import AccessService
@@ -30,6 +31,7 @@ from telebotshop.application.services.manual import ManualFulfillmentService
 from telebotshop.application.services.orders import OrderService
 from telebotshop.application.services.payments import PaymentService
 from telebotshop.application.services.pre_checkout import PreCheckoutService
+from telebotshop.application.services.refunds import RefundService
 from telebotshop.application.services.resends import ResendService
 from telebotshop.application.services.resources import ResourceService
 from telebotshop.application.services.support import SupportService
@@ -54,6 +56,7 @@ from telebotshop.infrastructure.telegram.guard import IngressGuard
 from telebotshop.infrastructure.telegram.logging import configure_telegram_logging
 from telebotshop.infrastructure.telegram.payments import PaymentsDispatcher, create_payment_router
 from telebotshop.infrastructure.telegram.pre_checkout import create_pre_checkout_router
+from telebotshop.infrastructure.telegram.refunds import TelegramRefundGateway
 from telebotshop.workers.fulfillment import run_forever
 
 
@@ -141,12 +144,13 @@ def create_dispatcher(
     history: HistoryService,
     resends: ResendService,
     support: SupportService,
+    refunds: RefundService,
 ) -> Dispatcher:
-    dispatcher = PaymentsDispatcher(payments.record)
+    dispatcher = PaymentsDispatcher(payments.record, refunds.record)
     guard = IngressGuard()
     dispatcher.message.outer_middleware(guard)
     dispatcher.callback_query.outer_middleware(guard)
-    dispatcher.include_router(create_payment_router(payments.record))
+    dispatcher.include_router(create_payment_router(payments.record, refunds.record))
     dispatcher.include_router(create_customer_router(identity))
     dispatcher.include_router(create_order_router(history, resends, access))
     dispatcher.include_router(create_support_router(support, identity))
@@ -156,6 +160,7 @@ def create_dispatcher(
     dispatcher.include_router(create_inventory_admin_router(inventory, access))
     dispatcher.include_router(create_resource_admin_router(resources, access))
     dispatcher.include_router(create_manual_admin_router(manual, access))
+    dispatcher.include_router(create_refund_admin_router(refunds))
     dispatcher.include_router(create_pre_checkout_router(pre_checkout.check))
     fallback = Router(name="unknown_callback")
 
@@ -204,6 +209,7 @@ async def run_polling(settings: BotSettings, inventory_settings: InventorySettin
                 history=HistoryService(factory),
                 resends=ResendService(factory, cipher, FiniteDeliverySender(bot)),
                 support=SupportService(factory, cipher, public_terms),
+                refunds=RefundService(factory, cipher, TelegramRefundGateway(bot)),
             )
             try:
                 await dispatcher.start_polling(

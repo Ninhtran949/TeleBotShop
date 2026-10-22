@@ -15,7 +15,7 @@ async def test_t09_upgrade_preserves_paid_receipt_allocation_ciphertext_and_read
     engine = database
     async with engine.begin() as connection:
         await connection.run_sync(upgrade, "0008_payments")
-    order, work_id = await paid_work(engine)
+    order, work_id = await paid_work(engine, pre_refunds=True)
     tables = (
         "users",
         "orders",

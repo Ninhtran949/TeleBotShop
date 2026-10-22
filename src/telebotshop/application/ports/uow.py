@@ -11,6 +11,7 @@ from telebotshop.application.ports.inventory import InventoryRepository
 from telebotshop.application.ports.manual import ManualRepository
 from telebotshop.application.ports.orders import OrderRepository
 from telebotshop.application.ports.payments import PaymentRepository
+from telebotshop.application.ports.refunds import RefundRepository
 from telebotshop.application.ports.resources import ResourceRepository
 from telebotshop.application.ports.support import SupportRepository
 
@@ -27,6 +28,7 @@ class UnitOfWork(Protocol):
     manual: ManualRepository
     history: HistoryRepository
     support: SupportRepository
+    refunds: RefundRepository
 
     async def commit(self) -> None: ...
 

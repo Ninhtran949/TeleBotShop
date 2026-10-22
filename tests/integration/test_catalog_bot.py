@@ -19,6 +19,7 @@ from telebotshop.infrastructure.database.uow import unit_of_work
 from telebotshop.infrastructure.telegram import guard as guard_module
 from tests.inventory import inventory_service
 from tests.manual import manual_service
+from tests.refunds import refund_service
 from tests.resends import RecordingSender, resend_service
 from tests.resources import resource_service
 from tests.support import support_service
@@ -56,6 +57,7 @@ async def test_admin_customer_photo_price_and_hidden_callbacks_use_real_db_outsi
         resources=resource_service(migrated_database),
         manual=manual_service(migrated_database),
         support=support_service(migrated_database),
+        refunds=refund_service(migrated_database),
         history=HistoryService(factory),
         resends=resend_service(migrated_database, RecordingSender(migrated_database)),
     )

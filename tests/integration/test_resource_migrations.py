@@ -12,7 +12,7 @@ from tests.resources import resource_product
 
 
 async def legacy_delivery(engine, state):
-    order, work_id = await paid_work(engine)
+    order, work_id = await paid_work(engine, pre_refunds=True)
     if state == "READY":
         return order, work_id
     attempt_id = uuid4()

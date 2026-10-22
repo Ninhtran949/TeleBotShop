@@ -1,6 +1,6 @@
 # Spec: fulfillment
 
-Status: T09–T11 đã triển khai typed worker đủ năm loại, claim/lease/recovery/retry/uncertain, encrypted source snapshots, manual completion và scoped history/confirmed resend. Actual refund/reconciliation còn T13; chưa toàn FD hoặc Telegram live acceptance. Nguồn: `task.md` §§4,5,11. Depends on: committed work contract của [orders-payments](orders-payments.md). [ADR-0002](../../adr/0002-payment-and-fulfillment-safety.md) quyết định delivery guarantee.
+Status: T09–T13 đã triển khai local typed worker đủ năm loại, recovery/retry/uncertain, pinned encrypted sources, manual completion, scoped history/resend và native refund holds/reconciliation. Chưa toàn FD hoặc Telegram live acceptance. Nguồn: `task.md` §§4,5,11. Depends on: committed work contract của [orders-payments](orders-payments.md). [ADR-0002](../../adr/0002-payment-and-fulfillment-safety.md) quyết định delivery guarantee.
 
 ## Entitlement và dispatch
 
@@ -107,14 +107,33 @@ Expired SENDING hiển thị uncertain trong history, persist khi prepare/confir
 không gửi lại sau restart. Late ACK giữ uncertainty và observation. Guard hold serialize
 với begin, chặn hold khi resend in-flight/uncertain. Reconciliation/refund ledger tới T13.
 
-REFUNDED và mọi state ngoài DELIVERED bị service allowlist chặn trước decrypt; REFUNDED
-repository DTO test hiện là simulated contract vì schema refund tới T13. T13 phải thêm
-native refund-ledger/resend race acceptance, không dựa riêng vào test này.
+REFUNDED và mọi state ngoài DELIVERED bị service allowlist chặn trước decrypt. T11 dùng
+simulated REFUNDED DTO; T13 đã bổ sung native refund ledger, đủ năm loại entitlement và
+hai physical connections cho refund/resend races, không dựa riêng vào simulated test.
 
 T12 order-help tạo own-order PAYMENT/DELIVERY ticket cho cả paid failure/uncertain. Staff
 có ticket scope chỉ xem public order snapshot, không mở entitlement hoặc dùng ticket để
 resend/complete/refund. Phản hồi support không thay work/payment/allocation; uncertainty
-vẫn cần reconciliation T13. Persistent inbox hiện chưa có proactive notification (T14).
+được xử lý qua privileged reconciliation T13. Persistent inbox hiện chưa có proactive
+notification (T14).
+
+## T13 refund boundary
+
+Refund begin serialize access→charge→order→work→active resend→intent. Owned
+`fulfillments.refund_intent_id` giữ hold; known FAILED chỉ nhả hold của chính intent.
+SENDING delivery/resend còn lease chặn refund; expired lease normalize UNCERTAIN. Explicit
+`/refund_uncertain` cần encrypted decision reference và actor/state-bound confirmation để
+refund dù có thể đã giao, không rewrite uncertain history hoặc cho phép resend lần nữa.
+Primary success đặt order REFUNDED và giữ unit/source/work/attempt; extra charge không
+đổi primary entitlement. Worker/resend/manual completion kiểm tra hold dưới cùng order
+lock, không allocate hoặc decrypt để sửa refund. Native races phủ cả hai lock outcomes.
+
+Authenticated refund có thể tới trong lúc network send đang chạy. Khi đó REFUNDED/owned
+hold được persist, completion muộn chỉ thêm immutable observation, không mark DELIVERED
+hoặc release/reallocate. Refund trước payment được apply ngay trong payment transaction,
+không commit READY work không hold ra ngoài. PostgreSQL deferred checks giữ work/attempt
+pairing kể cả REFUNDED; chỉ order-status clauses được nới cho confirmed primary refund.
+Không thể thu hồi message hoặc key đã biết chỉ bằng transaction/refund.
 
 ## Guarantee và giới hạn
 

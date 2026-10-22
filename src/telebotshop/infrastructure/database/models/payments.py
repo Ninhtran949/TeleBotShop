@@ -117,6 +117,11 @@ fulfillments = sa.Table(
     ),
     sa.Column("send_count", sa.Integer, nullable=False, server_default="0"),
     sa.Column("hold", sa.Boolean, nullable=False, server_default=sa.false()),
+    sa.Column(
+        "refund_intent_id",
+        sa.Uuid,
+        sa.ForeignKey("refund_intents.id", name="fk_fulfillments_refund", use_alter=True),
+    ),
     sa.Column("attention_code", sa.String(32)),
     sa.Column(
         "created_at",
@@ -174,3 +179,4 @@ sa.Index(
 )
 sa.Index("ix_fulfillments_order", fulfillments.c.order_id)
 sa.Index("ix_fulfillments_attempt", fulfillments.c.active_attempt_id)
+sa.Index("ix_fulfillments_payment", fulfillments.c.payment_id)

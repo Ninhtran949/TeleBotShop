@@ -1,10 +1,10 @@
-# Security controls — T03–T12
+# Security controls — T03–T13
 
 Phạm vi hiện có: identity, permission, audit, public catalog/admin, encrypted key/license
 inventory/resource sources, orders/approval/receipt/paid entitlement, typed delivery worker,
-manual completion và development polling. Đây là controls đã
+manual completion, history/resend, support tickets, full refund/reconciliation và development polling. Đây là controls đã
 triển khai/automated-test, chưa là production hoặc toàn bộ shop security acceptance.
-History/resend và support tickets có T11–T12 local evidence. Refund, webhook và release có gate riêng trong
+Refund có T13 local evidence; webhook, Telegram external acceptance và release có gate riêng trong
 [implementation plan](plans/shop/implementation-plan.md).
 
 | Boundary | Control hiện tại | Evidence |
@@ -55,8 +55,8 @@ Keyring, dedup key và backup key nằm ngoài DB/source/Telegram; mất key kh�
 inventory chỉ từ DB. Thêm version giữ old keys; bulk rotation/removal/restore chưa làm.
 
 Owner dùng `/grant`/`/revoke` sau khi staff đã `/start`. Role ceiling không tự cấp quyền.
-Đổi ADMIN/SUPPORT phải thu hồi hết quyền cũ, rồi grant dưới role mới. `payments.refund`
-là permission foundation; chưa có refund operation. `tickets.manage` không tự tạo ticket
+Đổi ADMIN/SUPPORT phải thu hồi hết quyền cũ, rồi grant dưới role mới. T13 refund operation
+cần current `payments.refund`; không cấp SUPPORT hoặc suy quyền từ `orders.read`. `tickets.manage` không tự tạo ticket
 scope và không cho SUPPORT xem order/key. Quyền access/settings không delegate, Owner
 transfer không có command trong T03; mismatch cần khôi phục đúng config hoặc quy trình
 ownership riêng được Owner cho phép.
@@ -104,7 +104,7 @@ commit trước return, errors không bị ordinary guard nuốt. ASGI harness 5
 chưa chứng minh authenticated production webhook. Không delivery/send/decrypt trong handler.
 Unique charge + primary/order + item/work, row locks, immutable ALLOCATED và deferred commit
 constraint giữ ledger/entitlement atomic; paid không release key. Conflict/attention cần
-permissioned reconciliation/refund ở task sau, chưa có command tự giải quyết.
+permissioned reconciliation/refund T13, không có automatic repair hoặc đoán lại entitlement.
 
 T09 worker dùng attempt UUID như private fencing capability, không dùng order/callback ID
 để tự cấp quyền decrypt. Claim commit riêng trước order→work prepare; repo không commit.
@@ -118,7 +118,8 @@ SENDING expiry hoặc result quá lease về UNCERTAIN, không auto send/refund/
 chưa gửi hết lease mới requeue. Fault tests phủ rollback cả ba commit và mất ACK sau result
 commit; cancellation giữ durable work, Bot/engine đóng. Observation enum/shape/immutability
 chặn nhét freeform SDK errors vào ledger. Hold thắng order lock chặn decrypt/send; in-flight/
-uncertain chặn automatic hold/refund. Refund/reconcile/resend authorization/UI còn task sau.
+uncertain chặn automatic hold/refund; T13 explicit decision chỉ cho phép refund sau lease,
+không giả delivery đã thất bại hoặc mở lại resend. T11/T13 có current-grant transport/use cases.
 Operational alert hiện là durable attention/audit + warning work UUID/fixed code; staff
 notification delivery T14. Two-worker và two-order-lock-direction tests dùng PostgreSQL thật.
 
@@ -154,9 +155,9 @@ hiển thị uncertain và persist khi action được gọi lại; crash/lost A
 auto retry. Late result chỉ thêm observation, không clear uncertainty. Audit giữ action/work
 IDs và fixed events, không lưu payload. PostgreSQL tests có hai physical connections.
 
-Refund persistence/resolver vẫn T13; test REFUNDED hiện là injected repository DTO cho
-fail-closed allowlist, chưa native refund ledger/race acceptance. Không suy live Telegram
-hoặc exactly-once delivery từ mock contracts. Staff manual work không tự replay.
+T13 bổ sung native refund ledger/race acceptance, thay vì dựa riêng vào T11 injected
+REFUNDED DTO allowlist test. Không suy live Telegram hoặc exactly-once delivery từ mock
+contracts. Staff manual work không tự replay.
 
 T12 ticket body có thể chứa dữ liệu riêng tư: giới hạn 2000 UTF-8 bytes, AES-GCM với AAD
 ticket/customer/message/author/staff/key-version, repr-hidden; không plaintext/hash body
@@ -177,6 +178,37 @@ URL/UNC. Startup đọc bounded snapshot trước Bot/DB; malformed/missing/plac
 từ chối với fixed error, không echo đường dẫn/body. Không config thì báo chưa sẵn sàng;
 không công bố draft temp.md tự động. Owner đã chọn nội dung nhưng còn phải điền placeholder.
 Checkout consent/live acceptance T14, không suy ra legal/compliance status từ loader/tests.
+
+T13 full refund lấy canonical verified amount/payer/charge, không callback/user text.
+Extra/unmatched chỉ được verified bằng positive incoming transaction evidence; missing payer
+chỉ được bổ sung khi evidence khớp, canonical receipt không overwrite. Staff cần current
+payments.refund ở mọi entrypoint; revoke trong network lookup được recheck trước persist.
+Actor/payment/exact state/10-minute confirmation và encrypted ≤500-byte decision reference
+chặn actor substitution/stale replay; AES-GCM refund-evidence:v1 gắn payment/action/version.
+Preview/audit/DTO repr không echo raw charge/payer/reference hoặc SDK errors.
+
+Access→charge→order→work→resend→intent locks và SQL uniqueness serialize competing actions.
+SENDING + owned hold + audit commit trước refund API; không connection qua network.
+Known rejected result chỉ nhả own hold; timeout/nontrue/unknown/lost ACK giữ uncertainty,
+không auto retry. Primary confirmed refund mới đổi REFUNDED, không release/restock key
+hoặc đổi source; extra refund giữ primary entitlement. In-flight delivery/resend chặn
+refund begin; expired UNCERTAIN cần explicit decision/reference/warning, không clear history.
+External refund giữa send chỉ thêm observation khi completion tới, không mark DELIVERED.
+
+Authenticated refunded-payment receipts bypass ordinary group/profile/rate guards để lưu
+trước offset, không bypass exact full-amount/currency/payload/provider match trước apply.
+Refund-before-payment apply cùng payment transaction, held work và REFUNDED atomic.
+Reconciliation chỉ positive matching outgoing evidence, ≤100 records/trang/bounded offset;
+absence không phải negative proof. Verification/reconciliation dùng đúng actual staff actor
+và audit atomic; system receipts giữ source/time riêng, không invent staff identity.
+
+Native tests có hai physical connections cho worker/resend/manual/refund races, đủ năm
+types, revoke/stale/expiry/cancel, before-payment/mismatch, commit/lost ACK/late result,
+immutable SQL/history pairing và downgrade refusal. Review regressions sửa audit actor và
+giữ exact work/attempt coupling kể cả REFUNDED; final review không Critical/Required.
+Optional defense-in-depth: SQL proof guard cho non-API success từ SENDING/UNCERTAIN có thể
+siết thêm; production application đã exact-match receipt trước transition. Không coi local
+DDL-role tests là production role separation; app/migration roles thuộc T18.
 
 Giới hạn cần hoàn thiện ở task tương ứng:
 

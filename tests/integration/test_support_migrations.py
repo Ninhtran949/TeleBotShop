@@ -27,7 +27,7 @@ async def test_t12_upgrade_empty_downgrade_preserve_t11_paid_entitlement_and_res
     engine = database
     async with engine.begin() as connection:
         await connection.run_sync(upgrade, "0011_history")
-    order, _, _ = await delivered_order(engine)
+    order, _, _ = await delivered_order(engine, pre_refunds=True)
     result = (
         DeliveryResult(DeliveryState.UNCERTAIN, code=DeliveryCode.NETWORK)
         if state == "UNCERTAIN"
@@ -58,9 +58,11 @@ async def test_t12_upgrade_empty_downgrade_preserve_t11_paid_entitlement_and_res
         await connection.run_sync(downgrade)
         await connection.run_sync(upgrade)
         for table, rows in before.items():
+            columns = ", ".join(rows[0]) if rows else "*"
             assert (
-                await connection.execute(text(f"SELECT * FROM {table}"))
+                await connection.execute(text(f"SELECT {columns} FROM {table}"))
             ).mappings().all() == rows
+        assert await connection.scalar(text("SELECT refund_intent_id FROM fulfillments")) is None
 
 
 @pytest.mark.asyncio

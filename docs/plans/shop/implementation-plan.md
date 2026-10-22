@@ -1,6 +1,6 @@
 # Implementation plan và task ledger
 
-Status: **T01–T12 hoàn tất local; T13–T18 pending**. Owner giao T12 tường minh. HEAD `d4e7bdd` (T11), index trống; `temp.md` là user file untracked được giữ nguyên. Agent không stage/commit/push.
+Status: **T01–T13 hoàn tất local; T14–T18 pending**. Owner yêu cầu continue sau T12. Branch `dev`, HEAD `6c9b25f` (T12) được cập nhật bên ngoài agent trong T13; index hiện trống, temp.md untracked giữ nguyên bytes. Baseline T13 có HEAD `d4e7bdd` và staged T12/temp; agent không stage/unstage/commit/push/discard work.
 
 ## Cách nhận và bàn giao task
 
@@ -864,7 +864,100 @@ Check scope: **H** = hai harness commands trong PROJECT. **C** = applicable lock
 
   **T12 hoàn tất local; dừng trước T13 pending, cần được giao riêng.**
 
-- [ ] **T13 — Refund và privileged operations.** Depends: T12. Spec: OP-06, AO-01,06; FD-06. Scope: persisted refund intents, action confirmation/dedup, grant-aware admin refund UI và uncertain reconciliation path. Acceptance: only authorized full refund; no refund-vs-send race, no automatic uncertain retry/restock; audit/business state atomic. Verify: C + D và focused security review với refund timeout/replay/worker concurrency. Actual real-account refund không được thực hiện từ việc task code được giao.
+- [x] **T13 — Refund và privileged operations.** Depends: T12. Spec: OP-06, AO-01,06; FD-06. Scope: persisted refund intents, action confirmation/dedup, grant-aware admin refund UI và uncertain reconciliation path. Acceptance: only authorized full refund; no refund-vs-send race, no automatic uncertain retry/restock; audit/business state atomic. Verify: C + D và focused security review với refund timeout/replay/worker concurrency. Actual real-account refund không được thực hiện từ việc task code được giao.
+
+  Baseline T13: snapshot source/tests/migrations/docs và index trong ignored .cache/t13-baseline;
+  không stage/unstage/discard T12 hoặc temp.md. Đã thực hiện từng lát theo existing specs/ADRs:
+
+  - [x] **T13.a — Durable confirmed full refund.** Current payments.refund, immutable receipt
+    binding, encrypted decision reference, actor/target/state/10-minute confirmation, one
+    active/succeeded intent/charge. Begin transaction đặt owned hold và SENDING trước API;
+    result/audit lưu riêng, no network trong UoW. Chỉ primary refund đổi order REFUNDED,
+    giữ allocated unit/source/work/attempt history; extra charge không revoke entitlement.
+  - [x] **T13.b — Uncertainty và receipt reconciliation.** Deadline/crash/timeout giữ
+    UNCERTAIN, không blind retry. Bounded Telegram transaction evidence xác minh unmatched
+    payer/charge và xác nhận refund; không suy chưa refund từ một trang không thấy record.
+    Primary in-flight delivery/resend chặn refund; expired send được giữ uncertain. Explicit
+    privileged decision với evidence cho phép refund khi delivery outcome chưa rõ, vẫn giữ
+    uncertainty/history và cảnh báo có thể khách đã nhận hàng; không tự resend/restock.
+    Authenticated refunded-payment receipts được giữ/dedup kể cả tới trước payment.
+  - [x] **T13.c — Staff transport và wiring.** Bounded refund queue/detail/confirmation,
+    verification/reconciliation commands, private callbacks/current grants, clear outcome
+    text và no raw charge/evidence/logs. Existing composition/UoW/financial ingress/callers,
+    history/resend/native REFUNDED boundary và fixtures đồng bộ.
+  - [x] **T13.d — Native failure/race/migration, review/gates/handoff.** PostgreSQL thật
+    cho refund-vs-worker/resend/manual và duplicate confirms, commit/lost ACK/late results,
+    downgrade refuses financial history. C + D + H, meaningful mutation probe, independent
+    review, build/runtime/audit và docs/setup evidence. Dừng trước T14; không live refund,
+    messages, deploy, commit hoặc push.
+
+  Implementation: `domain/models/refunds`, application refund port/services, encrypted
+  reference context, database models/repository/UoW và `0013_refunds`; Telegram adapter,
+  private admin commands/menu, durable financial dispatcher và composition root wired.
+  Worker completion/resend/history giữ REFUNDED boundary; mandatory refund receiver đã
+  cập nhật mọi caller/fixture. Không thêm dependencies/config/ADRs hoặc sửa migrations cũ.
+  Primary success giữ allocated unit/pinned resource/attempts, extra success không revoke
+  primary entitlement. Incoming receipt proof và outbound refund proof được phân hướng;
+  absence trong một bounded transaction page không mở retry. API 10s/send window 60s,
+  action 10 phút/reference ≤500 UTF-8 bytes là input policy, không tự đặt refund window.
+
+  **Verification 2026-10-22, Windows/CPython 3.12.15/uv 0.13.4:**
+
+  | Command / gate | Kết quả |
+  | --- | --- |
+  | `uv lock --check`; `uv sync --locked --no-build` | PASS; manifest/lock không đổi. |
+  | `uv run --no-sync ruff check .`; `uv run --no-sync ruff format --check .` | PASS; 282 Python files formatted, không disable rules. |
+  | `uv run --no-sync pytest tests/unit tests/contract tests/architecture -q --tb=line --junitxml=.cache/t13-c.xml` | **472 passed** trong 20.26s; 0 failures/errors/skips. |
+  | `APP_ENV=test` + exact test DSN, `uv run --no-sync pytest tests/integration -q --tb=line --junitxml=.cache/t13-d.xml` | **410 passed** trong 446.48s; PostgreSQL 18.6 thật, isolated markers/schemas, 0 failures/errors/skips; không SQLite. |
+  | `uv run --no-sync python scripts/check_architecture.py` | PASS import matrix. |
+  | `python scripts/verify_harness.py`; `python -B -m unittest discover -s tests -p test_harness.py -v` | PASS; **6 tests**. Six upstream originals/checksums giữ nguyên. |
+  | `uv build --no-sources` + wheel/sdist inspection | PASS; 119 source modules khớp byte hash, packaged README khớp; không cache/tools/venv/tests/.env/temp dù uv cảnh báo cache nằm dưới workspace. |
+  | Locked runtime export, fresh `.cache/t13-final-wheel-runtime`, offline hash-checked dependencies, exact wheel install, `uv pip check`, isolated `python -I` smoke | PASS; 119 matching modules, poisoned settings gồm SHOP_TERMS_PATH, no network/no pytest; native AES-GCM roundtrip + wrong-AAD cho 9 typed contexts. |
+  | `uv audit --locked` | PASS; không known vulnerabilities/adverse statuses trong 49 third-party packages tại thời điểm kiểm tra; không thay thế container/release audit. |
+  | `.venv/Scripts/python.exe -B .cache/t13-mutation-check.py` | Green control 1 pass; isolated copy đảo SUCCEEDED branch làm đúng 1 failure, 0 errors/skips. Main source nguyên hashes, copy restored; evidence `.cache/t13-mutation/`. |
+  | Independent read-only review | Không còn Critical/Required; actual actor audit và exact refunded work/attempt pairing đã sửa, focused regressions fail trước/green sau. Reviewer không sửa source hoặc chạy live. |
+  | `git diff --check`; UTF-8/local links/fences/protected/checklist/snapshot | PASS; 68 changed/new files so với baseline T13 (57 Python, 11 Markdown), riêng temp.md là preexisting user file. 119 source + 124 test + 14 migration Python files khớp reviewed snapshot; 43 protected files và temp.md nguyên bytes. Chỉ T01–T13 done/T14–T18 pending. |
+
+  Native evidence: đủ năm product types giữ đúng entitlement sau primary refund, không
+  restock/resend; extra/unmatched verification, missing payer, primary-vs-extra, late
+  paid-attention không work, refund-before-payment, mismatch receipts và late delivery
+  observations. Confirmation current actor/grant/expiry/cancel/exact snapshot check trước
+  decrypt, revoke-during-lookup check lại khi persist. Refund-vs-worker/resend/manual cả
+  hai order-lock outcomes và duplicate confirms dùng hai physical backend pids/barriers,
+  không sleeps. Prepare/begin/complete precommit failures rollback; lost ACK không lặp
+  API hoặc overwrite success/uncertainty. Actual reconciling actor audit failure rollback
+  verification/receipt/intent/order cùng nhau; không dùng actor tạo intent thay người xử lý.
+
+  SQL checks giữ immutable receipts/intents/verifications, active uniqueness, exact
+  amount/payer/window và work/attempt coupling kể cả REFUNDED. `0013_refunds` occurrence-
+  checked rewrites chỉ mở order-status coupling cho confirmed primary refund; giữ pairing,
+  hold/send guards và predecessor function definitions. 0012→0013→0012→0013 native tests
+  giữ delivery/resend/ticket/financial history, metadata không drift. Downgrade có bất kỳ
+  intent/receipt/verification thì từ chối. Historical migration fixtures dùng explicit
+  `pre_refunds` seeding seam vì predecessor không có refund_receipts, không runtime schema
+  fallback và không mock T13 PostgreSQL integrity/races.
+
+  Review optional: thêm SQL positive-receipt proof cho non-API success từ SENDING/UNCERTAIN.
+  Production application đã exact-match persisted receipt trước transition; không thấy
+  application bypass, không Required finding. Local tests dùng DDL role; production
+  app/migration role separation và restore vẫn T18. Không tuyên bố exactly-once Telegram.
+
+  Git preservation: baseline index entries lưu trước edits; sau external commit T12,
+  index entries giữ nguyên mọi path/blob trừ temp.md được bỏ stage bên ngoài agent.
+  HEAD tiến d4e7bdd→6c9b25f, index hiện trống; user file temp.md nguyên bytes/untracked.
+  Không stage/unstage/commit/push/reset/restore. Full D bao gồm successful fixture teardown;
+  sau suite Docker daemon đã tắt bên ngoài agent (named pipe unavailable). Không start lại
+  chỉ để đếm schema/client; không claim post-suite 0-count hoặc agent đã stop service.
+
+  **Owner setup và giới hạn:** không cần key/provider/server mới cho T13 local; reuse
+  keyring/Bot API, fake fixtures và Telegram mocks. Trước external T14 cần test bot/account,
+  existing BOT_TOKEN/OWNER_ID/DSN/keyring qua secure environment, current refund grant và
+  Owner chốt policy. Không gửi secrets trong chat. temp.md được chọn làm điều khoản chính
+  thức nhưng còn placeholders, giữ nguyên/chưa publish; Owner hoàn thiện rồi đặt
+  SHOP_TERMS_PATH/restart polling và support contact theo README. Không live payment/
+  refund/message, deployment hoặc production restore; T14 core/live và T18 release còn riêng.
+
+  **T13 hoàn tất local; dừng trước T14 pending, cần được giao riêng.**
 
 - [ ] **T14 — Core integration và Telegram test acceptance.** Depends: T13. Scope: complete customer/admin navigation/contracts, operational alerts, BotFather/test-webhook setup instructions và end-to-end evidence. Acceptance: đủ năm types và customer/admin menus thuộc core hoạt động trên DB thật; test Stars checkout/delivery/refund được quan sát; không Critical/High còn mở trong core. Verify: C + D + E theo matrix dưới; thiếu external credentials/setup thì ghi gate chưa verify và không tick task done. Không cần credentials để hoàn tất các automated tests độc lập.
 

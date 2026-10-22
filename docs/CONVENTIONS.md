@@ -21,6 +21,7 @@
 - Side-effect result phải phân biệt success, known failure và uncertain. Timeout sau khi gửi request không chứng minh request chưa thực hiện. Không retry refund/send để chữa lỗi lưu DB sau network call.
 - Logs dùng correlation/order/attempt IDs và error codes; audit lưu actor/action/target với quyền truy cập phù hợp. Không log nguyên Update, message body, invoice/token/DSN, CSV inventory, plaintext key hoặc payload giao hàng.
 - Ticket bodies chỉ lưu encrypted envelope, không body/hash trong audit hoặc queue. Recheck current grant/persisted assignment trước đọc ciphertext; reply ACK chỉ nói đã lưu khi chưa có notification transport. Terms là public Owner content được cấu hình rõ, không fallback sang draft hoặc policy bịa.
+- Refund chỉ full verified charge; encrypted decision + actor/current grant/state-bound confirmation, owned hold trước API, result/audit sau API. Positive evidence mới SUCCEEDED; absence trong một transaction page không là negative proof. Financial refund receipts bypass ordinary guards nhưng phải durable trước offset/ack.
 
 ## Database và migrations
 
@@ -48,7 +49,7 @@ Review theo correctness, simplicity, architecture, security, performance. Featur
 
 ## Toolchain và quality gates
 
-**T01–T12 đã thiết lập toolchain/runtime, PostgreSQL/migrations, identity/permission/audit, catalog/admin, encrypted inventory/resource sources, orders/invoice intents, serialized pre-checkout approval, durable receipt/paid allocation/resource work, fenced typed worker/recovery, manual completion, scoped history/dashboard/confirmed resend và encrypted ticket inbox/confirmed assignment/terms với các gate local dưới đây. CI chưa có.** Bằng chứng nằm trong [implementation plan](plans/shop/implementation-plan.md); lý do chọn ở [ADR-0004](adr/0004-toolchain-and-quality-gates.md).
+**T01–T13 đã thiết lập toolchain/runtime, PostgreSQL/migrations, identity/permission/audit, catalog/admin, encrypted inventory/resource sources, orders/invoice intents, serialized pre-checkout approval, durable payment/refund receipts, paid allocation/resource work, fenced typed worker/recovery, manual completion, scoped history/dashboard/confirmed resend, encrypted ticket inbox/confirmed assignment/terms và confirmed full refund/hold/reconciliation với các gate local dưới đây. CI chưa có.** Bằng chứng nằm trong [implementation plan](plans/shop/implementation-plan.md); lý do chọn ở [ADR-0004](adr/0004-toolchain-and-quality-gates.md).
 
 `pyproject.toml` cấu hình Python/dependency groups, Pytest và Ruff; `uv.lock` là lockfile duy nhất. `.python-version` pin CPython 3.12.15; `tool.uv.required-version` pin uv 0.13.4, build backend pin cùng phiên bản; dev group pin Pytest 9.1.1 và Ruff 0.17.1. T02 pin runtime packages và PostgreSQL image/digest; xem PROJECT/DATABASE. Ruff: target `py312`, line length 100, rules `E`, `F`, `I`, `B`, `UP`; dùng formatter của Ruff. `.agents/` được loại khỏi lint/format để giữ nguyên bytes upstream; Python do repo sở hữu, gồm harness, vẫn được kiểm tra. Thêm rule sau khi có nhu cầu; không disable rule hàng loạt hoặc auto-fix ngoài scope.
 

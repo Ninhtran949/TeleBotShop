@@ -1,6 +1,6 @@
 # Spec: identity-access
 
-Status: T03 identity/permission foundation, T11 scoped customer/staff history/resend và T12 scoped support tickets đã triển khai local; Telegram external acceptance thuộc T14. Nguồn: `task.md` §§3,6,9,10. Depends on: không. Scope và coding/commands theo [index](README.md), [ARCHITECTURE](../../ARCHITECTURE.md), [CONVENTIONS](../../CONVENTIONS.md).
+Status: T03 identity/permission foundation, T11 history/resend, T12 scoped support và T13 privileged refund đã triển khai local; Telegram external acceptance thuộc T14. Nguồn: `task.md` §§3,6,9,10. Depends on: không. Scope và coding/commands theo [index](README.md), [ARCHITECTURE](../../ARCHITECTURE.md), [CONVENTIONS](../../CONVENTIONS.md).
 
 ## Contract
 
@@ -49,7 +49,18 @@ T11 history/detail: customer chỉ own buyer, staff current orders.read; plainte
 trong metadata projection. Staff resend cần thêm fulfillment.manage và actor-bound action,
 customer chỉ resend về private buyer đã lưu. Confirmation recheck grant/state/hold trước
 shared authorized entitlement reader/decrypt. Hai native connections, IDOR/callback replay,
-revoked grant và mock Telegram contracts có coverage; refund ledger/live gates vẫn riêng.
+revoked grant và mock Telegram contracts có coverage; native refund ledger thuộc T13,
+live gates vẫn riêng.
+
+T13 mọi queue/detail/prepare/begin/complete/cancel/verify/reconcile refund kiểm tra current
+`payments.refund` trong UoW; OWNER hoặc ADMIN explicit grant, SUPPORT bị role ceiling chặn.
+`orders.read` không cấp quyền refund; refund metadata không expose delivery payload. Action
+gắn actual actor/payment/state/expiry, không confirm hộ bằng Owner hoặc staff khác. Giữ
+access lock tới commit; verify/reconcile qua network phải reauthorize khi persist. Staff
+audit ghi đúng người thực hiện, không thay bằng actor đã tạo intent. Authenticated system
+financial receipts là nguồn riêng, giữ provenance và không invent staff actor. Native tests
+phủ direct deny, wrong actor, revoke-before-decrypt/during lookup, expiry/cancel/stale,
+atomic audit failure và financial replay; không coi mock Update là production auth proof.
 
 - **IA-01:** Hai `/start` đồng thời cho cùng ID chỉ tạo một user; đổi username vẫn là cùng user, không tăng quyền.
 - **IA-02:** User thường gọi `/admin`, sửa callback hoặc gọi trực tiếp protected use case đều bị từ chối và không mutate DB/expose dữ liệu.

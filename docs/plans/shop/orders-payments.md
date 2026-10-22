@@ -1,6 +1,6 @@
 # Spec: orders-payments
 
-Status: T06–T08 order/invoice, serialized approval, durable receipt/paid allocation/READY intent đã triển khai; T09 có worker, T10 mở nonfinite pinned resource entitlements. Polling có durable intake/checker thật; public Buy/core UI còn T14, refund còn T13. Chưa nghiệm thu toàn OP hoặc live Stars. Nguồn: `task.md` §§3,5,8,11. Depends on: [identity-access](identity-access.md), [catalog-inventory](catalog-inventory.md). Quyết định an toàn: [ADR-0002](../../adr/0002-payment-and-fulfillment-safety.md).
+Status: T06–T13 đã triển khai local order/invoice, serialized approval, durable receipts/paid entitlement, typed delivery và privileged full refund/reconciliation. Polling có durable financial intake; public Buy/core UI và Telegram test acceptance còn T14. Chưa nghiệm thu toàn OP hoặc live Stars. Nguồn: `task.md` §§3,5,8,11. Depends on: [identity-access](identity-access.md), [catalog-inventory](catalog-inventory.md). Quyết định an toàn: [ADR-0002](../../adr/0002-payment-and-fulfillment-safety.md).
 
 ## Order và invoice
 
@@ -111,6 +111,44 @@ không gọi ngược payment handler hoặc cấp key mới. Failed delivery v�
 Chỉ full refund của verified received charge; Bot API hiện không nhận amount cho `refundStarPayment`. Có thể là primary matched charge hoặc extra/unmatched receipt đã được authorized reconciliation xác minh payer/charge. Persist refund intent/action dedup + actor/audit trước gọi API. Verify current permission và policy, serialize với order/delivery. Không tự gửi refund của primary payment khi send đang in-flight/uncertain; cần resolve attempt hoặc explicit manual decision có audit.
 
 Confirmed API result hoặc authenticated refund event khớp charge mới mark refund SUCCEEDED. Chỉ refund primary charge mới chuyển order REFUNDED; hoàn extra charge không revoke order/entitlement đã thanh toán hợp lệ bằng charge khác. Timeout/unknown outcome → UNCERTAIN, giữ record và dừng automatic retry; reconcile từ Telegram transaction evidence trước quyết định tiếp. Repeated button/update không tạo hai refund intents đang chạy hoặc refund lại charge đã hoàn. Key từng allocated không tự restock; hàng đã giao không thể được giả định thu hồi bằng việc đổi DB state.
+
+T13 local: `payment_verifications`, immutable `refund_receipts` và `refund_intents` có
+current `payments.refund` (OWNER hoặc explicit ADMIN grant), không dùng `orders.read`
+thay quyền tài chính. Primary MATCHED receipt là verified; extra/unmatched phải có positive
+incoming transaction evidence khớp charge/amount/payload/payer đã biết. Chỉ evidence này mới
+bổ sung payer còn thiếu; không sửa canonical receipt hoặc nhận payer từ staff input.
+
+Prepare lưu encrypted decision reference ≤500 UTF-8 bytes với payment/action/version AAD,
+actor/payment/exact order-work-resend snapshot và TTL 10 phút. Confirm giữ access→charge→
+order→work→active resend→intent locks, recheck grant/state/expiry trước decrypt; một active
+hoặc succeeded intent/payment. Begin commit SENDING + owned hold + audit trước API; không
+giữ DB session qua network. API timeout 10s, send window 60s; chỉ true là success, known
+rate-limit rejection là FAILED, mọi kết quả chưa chắc accepted là UNCERTAIN. Không auto
+retry; known failure chỉ nhả hold của chính intent và muốn thử lại phải tạo action mới.
+
+Delivery/resend SENDING còn lease chặn cả explicit override. Expired SENDING được chuyển
+UNCERTAIN; `/refund_uncertain` cần decision reference, warning và confirmation riêng để
+hoàn tiền dù có thể đã giao hàng. Không clear delivery uncertainty, sửa attempts, mở resend
+hoặc lấy key khác. Primary success đổi REFUNDED, giữ entitlement/allocation/history;
+extra success không đổi order. Late API success được ghi nhận; late failure không xóa
+uncertainty hoặc success. Expired refund SENDING chỉ normalize uncertainty, không resubmit.
+
+`/verify_charge` và `/reconcile_refund` đọc tối đa 100 transactions/trang, offset bounded;
+direction incoming/outgoing và identity đầy đủ mới là positive proof. Không thấy record
+trên một trang không chứng minh chưa refund và không mở retry. Verify/reconcile lưu actual
+staff actor + redacted audit atomic với thay đổi; system event giữ provenance trong receipt.
+Authenticated `refunded_payment` lưu/dedup trước polling offset, kể cả unknown charge,
+missing profile/group hoặc tới trước successful payment. Wrong currency/amount/payload/
+provider được giữ nhưng không apply. Refund đã lưu được apply trong cùng payment UoW:
+primary REFUNDED + held work atomic, không mở cửa cho worker. Nếu message đã in-flight,
+event không thu hồi được nó; completion đến sau chỉ lưu observation, không đổi DELIVERED.
+
+Native PostgreSQL coverage gồm đủ năm product types, late paid-attention không work,
+primary/extra/before-payment receipts, rollback/lost ACK, actor/grant/expiry/stale action,
+hai physical connections cho refund-vs-worker/resend/manual và duplicate confirm. Migration
+0013 giữ nguyên predecessor data/functions, từ chối downgrade khi có refund history.
+Đây là local/mock evidence; external Stars refund vẫn là gate T14, không tự đặt business
+refund window hoặc tuyên bố đã thu hồi tài nguyên sau refund.
 
 ## Acceptance criteria
 

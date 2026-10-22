@@ -4,7 +4,7 @@ Shop Telegram bán tài nguyên số có quyền phân phối, thanh toán Stars
 Trạng thái và task đang được thực hiện: [PROJECT](docs/PROJECT.md),
 [implementation plan](docs/plans/shop/implementation-plan.md).
 
-T01–T12 đã có toolchain/runtime, identity/permissions/audit, catalog PostgreSQL với năm loại
+T01–T13 đã có toolchain/runtime, identity/permissions/audit, catalog PostgreSQL với năm loại
 metadata công khai, admin product maintenance và kho key/license mã hóa, import atomic,
 retire/low-stock có phân quyền và order/reservation/expiry cho key/license. Durable invoice
 intent, pre-checkout approval, durable receipt, paid allocation và READY fulfillment intent đã có.
@@ -12,7 +12,8 @@ T09 có worker giao key/license, fenced attempts/recovery và bounded known-fail
 T10 thêm nguồn mã hóa theo phiên bản cho file/reusable/manual, document dispatch và staff
 completion có bằng chứng/xác nhận. T11 thêm lịch sử đơn, dashboard staff và resend cùng
 entitlement có xác nhận. T12 thêm ticket mã hóa, phân công/phản hồi theo quyền, `/paysupport`
-và điều khoản do Owner cung cấp. Customer Buy/navigation còn core UI T14; chưa có production webhook.
+và điều khoản do Owner cung cấp. T13 thêm full refund có xác nhận/ledger/hold, intake refund
+event và đối soát bằng chứng Stars. Customer Buy/navigation còn core UI T14; chưa có production webhook.
 Telegram API trong tests là mock; PostgreSQL integration dùng DB thật.
 
 ## Môi trường development
@@ -78,7 +79,7 @@ Operator có thể chạy một batch tối đa 100 đơn hết hạn và 100 in
 uv run --no-sync telebotshop expire-orders
 ```
 
-Lệnh cần DATABASE_URL/schema head `0012_support`, không cần BOT_TOKEN/OWNER_ID hoặc
+Lệnh cần DATABASE_URL/schema head `0013_refunds`, không cần BOT_TOKEN/OWNER_ID hoặc
 inventory keys; không gửi Telegram. TTL reservation 15 phút theo DB time. Claim SENDING
 quá 30 giây chuyển UNCERTAIN, giữ attempt và không tự gửi lại. Chạy lặp theo lịch vận hành
 khi có checkout; T06 chưa có scheduler/worker hoặc thao tác tự reconcile/resend invoice.
@@ -101,7 +102,7 @@ handler không send/decrypt/giao hàng. Chưa có nghiệm thu tải/latency Tel
 
 ## Worker giao hàng (T09–T10)
 
-Sau migration head `0012_support`, đặt BOT_TOKEN/OWNER_ID, DATABASE_URL và inventory
+Sau migration head `0013_refunds`, đặt BOT_TOKEN/OWNER_ID, DATABASE_URL và inventory
 keys qua environment bảo vệ như polling. Command có thể gửi secret tới buyer; chỉ operator
 chạy với đúng bot/environment và authorization gửi thực tế. Automated tests dùng mock.
 
@@ -161,7 +162,8 @@ Trong private chat:
 - `/admin` kiểm tra quyền hiện tại. Owner có Quản lý quyền, Cài đặt, Sản phẩm và Kho hàng;
   staff có `catalog.manage` thấy Sản phẩm, `inventory.manage` thấy Kho hàng.
   T10 thêm Nguồn giao hàng và Giao hàng thủ công theo quyền hiện tại.
-  T11 thêm Đơn hàng/Tổng quan đơn; T12 thêm Ticket theo `tickets.manage`; refund/reconcile thuộc T13.
+  T11 thêm Đơn hàng/Tổng quan đơn; T12 thêm Ticket theo `tickets.manage`;
+  T13 thêm Hoàn tiền Stars theo `payments.refund` hiện tại.
 - Owner dùng `/grant <Telegram_ID> <ADMIN|SUPPORT> <permission>` hoặc `/revoke` với cùng
   ba tham số, sau đó bấm **Xác nhận** trong 10 phút. Người nhận phải `/start` trước;
   lấy ID của chính mình từ Tài khoản. Mỗi lần chỉ đổi một permission.
@@ -327,7 +329,7 @@ Replay không hoàn tất lần hai. Preview/log/audit không echo nội dung ng
 **Owner setup cho T10 local: không cần thêm key/provider/server.** Tests dùng fixture giả,
 Telegram mock và PostgreSQL test cô lập. Để nghiệm thu Telegram T14 cần test bot/account,
 secrets trong môi trường bảo mật và tài nguyên có quyền phân phối; không gửi secrets trong chat.
-Public Buy, refund/reconcile và production deployment vẫn theo task sở hữu.
+Public Buy và production deployment vẫn theo task sở hữu; refund/reconcile local có ở T13.
 
 ## Lịch sử đơn và gửi lại (T11)
 
@@ -354,12 +356,13 @@ không giữ DB connection qua Telegram; lưu kết quả/audit trong transactio
 action không gọi send lần hai. Known failure cần yêu cầu mới rõ ràng; không retry tự động.
 Timeout/mất ACK/crash sau claim được coi là chưa rõ: history hiển thị `UNCERTAIN` khi quá
 deadline; lần gọi lại action/prepare lưu trạng thái này bền vững, giữ late observation,
-chặn resend tiếp và chặn đặt refund hold tới khi được đối soát. Chưa có resolver trước T13.
+chặn resend tiếp và automatic refund hold. T13 cho phép explicit refund decision sau lease
+theo phần hoàn tiền bên dưới; không clear uncertainty để gửi lại.
 
 **Owner setup T11 local: không cần thêm key/provider/server.** Tests dùng fake inventory,
 PostgreSQL test cô lập và Telegram mock. Real Telegram acceptance vẫn cần test bot/account,
-secrets/keyring hiện có qua environment bảo vệ ở T14. Refund ledger còn T13: contract test
-cho repository state `REFUNDED` không thay thế native refund-vs-resend acceptance lúc đó.
+secrets/keyring hiện có qua environment bảo vệ ở T14. T13 đã bổ sung native refund-ledger/
+resend race tests, không dựa riêng vào simulated `REFUNDED` repository DTO của T11.
 
 ## Hỗ trợ và điều khoản (T12)
 
@@ -400,8 +403,56 @@ $env:SHOP_TERMS_PATH = (Resolve-Path -LiteralPath '.\temp.md').Path
 sai định dạng hoặc còn placeholder khiến polling từ chối startup trước khi tạo Bot/DB.
 Không tải URL/UNC. Nội dung này phải được Owner hoàn thiện và chịu trách nhiệm; bot không
 tự thẩm định pháp lý. Checkout consent và Telegram test/live acceptance thuộc T14;
-refund/reconciliation thuộc T13. Yêu cầu payment support/terms tham chiếu
+refund/reconciliation đã có local ở T13. Yêu cầu payment support/terms tham chiếu
 [Telegram Stars](https://core.telegram.org/bots/payments-stars).
+
+## Hoàn tiền Stars và đối soát (T13)
+
+OWNER/ADMIN có current `payments.refund` mở **Hoàn tiền Stars** trong `/admin`, `/refunds`
+hoặc `/refunds PAYMENT_ID`. Queue 5 thanh toán/trang, PAYMENT_ID là UUID ledger nội bộ;
+UI không trả raw Telegram charge, payer ID hoặc tham chiếu quyết định riêng tư. SUPPORT
+và quyền đọc đơn không tự có quyền hoàn tiền. Đây là công cụ operator; tests dùng dữ liệu
+giả/Telegram mock, chưa được nghiệm thu tài khoản thật.
+
+- `/refund PAYMENT_ID`, xuống dòng rồi nhập tham chiếu quyết định đã duyệt theo chính
+  sách shop (tối đa 500 UTF-8 bytes). Bot tạo preview toàn bộ Stars, payment/order và tác
+  động lên entitlement; **Xác nhận** trong 10 phút mới thực hiện. Không nhận amount/payer/
+  raw charge từ callback. Reference mã hóa bằng keyring hiện có; current grant, actor,
+  snapshot trạng thái và deadline được kiểm tra lại trước gọi Telegram.
+- Chỉ hoàn toàn bộ verified received charge bằng `refundStarPayment`. Charge chính MATCHED
+  dùng receipt đã xác thực; charge thừa/unmatched cần `/verify_charge PAYMENT_ID [OFFSET]`.
+  Mỗi lần đọc tối đa 100 Telegram transactions, khớp charge/payer/amount/payload/direction;
+  OFFSET là số record bỏ qua, 0–1000000. Không sửa receipt gốc hoặc suy payer từ username.
+- Trước API, commit intent SENDING và hold thuộc intent trên work chính. Không giữ DB
+  transaction qua network. Confirm lặp không gọi lại. Chỉ positive API result hoặc refund
+  event/transaction evidence khớp mới ghi SUCCEEDED. Refund charge chính chuyển REFUNDED
+  và chặn worker/manual/resend; refund charge thừa giữ nguyên order/entitlement chính.
+  Unit đã allocated, source snapshot và attempt history không tự restock/xóa/thu hồi.
+- Timeout, mất ACK, kết quả không rõ hoặc SENDING quá 60 giây giữ UNCERTAIN và hold.
+  `/reconcile_refund PAYMENT_ID [OFFSET]` chỉ xác nhận từ positive outbound refund evidence;
+  một trang không thấy record không chứng minh chưa hoàn. Không auto retry, không có nút
+  xóa quarantine để hoàn lại. API rejection được xác định chưa accepted cần yêu cầu/xác
+  nhận mới; chỉ hold của intent đó được thả.
+- Delivery/resend còn in-flight chặn refund. Sau hết lease, helper giữ UNCERTAIN.
+  Nếu operator đã duyệt rõ rủi ro khách có thể đã nhận tài nguyên, dùng
+  `/refund_uncertain PAYMENT_ID`, xuống dòng rồi nhập evidence/reference, đọc cảnh báo và
+  xác nhận mới. Quyết định này cho phép refund, giữ nguyên uncertainty và lịch sử gửi;
+  không tuyên bố đã thu hồi hàng hoặc cho phép blind resend.
+
+Authenticated `refunded_payment` được lưu trước polling offset, kể cả chưa có profile hoặc
+payment tới sau. Event sai amount/payload/provider được giữ để kiểm tra, không mark refund.
+Receipt tới trước payment được áp dụng atomically khi payment được lưu; work giữ hold,
+không mở lại delivery. Kết quả delivery tới muộn sau external refund chỉ thêm observation.
+Verification/reconciliation lưu audit của chính staff trong cùng transaction; system events
+giữ source/time trong immutable receipt ledger, không gán giả một staff đã thực hiện.
+
+**Owner setup T13 local: không cần key/provider/server mới.** Dùng Bot API và keyring hiện có.
+Trước test/live T14 cần bot/account, secure environment và chính sách refund do Owner chốt;
+thông tin điều khoản/support còn theo phần T12. Không chạy polling/refund thật để thử các
+lệnh này khi chưa chủ động cho phép hiệu ứng đó. API contracts tham chiếu
+[refundStarPayment](https://core.telegram.org/bots/api#refundstarpayment),
+[RefundedPayment](https://core.telegram.org/bots/api#refundedpayment) và
+[StarTransaction](https://core.telegram.org/bots/api#startransaction).
 
 ## PostgreSQL integration tests
 

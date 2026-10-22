@@ -25,6 +25,7 @@ def dispatcher_for(receiver):
         history=AsyncMock(),
         resends=AsyncMock(),
         support=AsyncMock(),
+        refunds=AsyncMock(),
     )
 
 
@@ -118,7 +119,7 @@ async def test_receipt_bypasses_full_rate_window(monkeypatch):
     record = AsyncMock()
     dispatcher = Dispatcher(disable_fsm=True)
     dispatcher.message.outer_middleware(guard)
-    dispatcher.include_router(create_payment_router(record))
+    dispatcher.include_router(create_payment_router(record, AsyncMock()))
     try:
         await dispatcher.feed_update(telegram.bot, payment_update())
         record.assert_awaited_once()

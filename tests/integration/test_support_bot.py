@@ -19,6 +19,7 @@ from tests.fulfillment import paid_work
 from tests.integration.test_support import staff
 from tests.inventory import fake_cipher, inventory_service
 from tests.manual import manual_service
+from tests.refunds import refund_service
 from tests.resends import RecordingSender, resend_service
 from tests.resources import resource_service
 from tests.telegram import TelegramRecorder, callback_update, message_update
@@ -57,6 +58,7 @@ async def test_native_private_support_assignment_reply_and_order_help(
         history=HistoryService(factory),
         resends=resend_service(engine, RecordingSender(engine)),
         support=support,
+        refunds=refund_service(engine),
     )
     sequence = 20
 
