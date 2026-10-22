@@ -1,6 +1,6 @@
 # Spec: identity-access
 
-Status: T03 identity/permission foundation và T11 scoped customer/staff history/resend đã triển khai local; tickets còn T12, Telegram external acceptance thuộc T14. Nguồn: `task.md` §§3,6,9,10. Depends on: không. Scope và coding/commands theo [index](README.md), [ARCHITECTURE](../../ARCHITECTURE.md), [CONVENTIONS](../../CONVENTIONS.md).
+Status: T03 identity/permission foundation, T11 scoped customer/staff history/resend và T12 scoped support tickets đã triển khai local; Telegram external acceptance thuộc T14. Nguồn: `task.md` §§3,6,9,10. Depends on: không. Scope và coding/commands theo [index](README.md), [ARCHITECTURE](../../ARCHITECTURE.md), [CONVENTIONS](../../CONVENTIONS.md).
 
 ## Contract
 
@@ -35,6 +35,13 @@ version/expiry và audit. Chi tiết schema và giới hạn hiện tại ở [D
 [SECURITY](../../SECURITY.md); không suy ra order/ticket integration hoặc live acceptance từ matrix tests.
 
 Ứng dụng chỉ nhận customer flows nhạy cảm trong private chat; group callback không được dùng làm delivery destination. `/admin` có thể từ chối sớm ở router để UX tốt, nhưng service vẫn phải từ chối direct unauthorized call.
+
+T12 SupportService xác thực customer ownership hoặc current tickets.manage trong cùng UoW.
+SUPPORT cần actual persisted assignee, không nhận scope từ callback hoặc tự assign. OWNER/
+ADMIN có grant mới assign/reassign tới người có current ticket grant; confirm lại actor,
+mode, ticket version và TTL. Scope check trước ciphertext/decrypt; linked order chỉ public
+context sau authorized ticket, không mở orders.read hoặc quyền xem delivery payload.
+Sequential revoke/reassign tests và native close/reply/duplicate races giữ failure boundaries.
 
 ## Acceptance criteria
 

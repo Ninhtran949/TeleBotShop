@@ -2,7 +2,7 @@
 
 ## Trạng thái và lựa chọn
 
-Đây là baseline thiết kế được SE/SA chọn theo ủy quyền của Owner. T01–T11 đã triển khai toolchain/runtime, HTTP health, PostgreSQL/UoW/migrations, identity/permission/audit, public catalog/admin, encrypted inventory, orders/invoice intents và serialized pre-checkout approval, durable receipt, paid allocation/resource entitlement và READY intent. Development polling dùng checker thật và ghi receipt trước offset; worker dispatch đủ năm loại, manual có staff completion; public Buy/production webhook chưa có. Yêu cầu nghiệp vụ gốc ở [`task.md`](../task.md); lý do chọn kiến trúc ở [ADR-0001](adr/0001-modular-monolith.md). Thiết kế chỉ dựng package/file khi một slice cần dùng, không tạo toàn bộ cây trống.
+Đây là baseline thiết kế được SE/SA chọn theo ủy quyền của Owner. T01–T12 đã triển khai toolchain/runtime, HTTP health, PostgreSQL/UoW/migrations, identity/permission/audit, public catalog/admin, encrypted inventory, orders/invoice intents và serialized pre-checkout approval, durable receipt, paid allocation/resource entitlement và READY intent. Development polling dùng checker thật và ghi receipt trước offset; worker dispatch đủ năm loại, manual có staff completion; history/resend và encrypted scoped support tickets đã có, public Buy/production webhook chưa có. Yêu cầu nghiệp vụ gốc ở [`task.md`](../task.md); lý do chọn kiến trúc ở [ADR-0001](adr/0001-modular-monolith.md). Thiết kế chỉ dựng package/file khi một slice cần dùng, không tạo toàn bộ cây trống.
 
 Chọn **modular monolith**, một codebase/image, PostgreSQL là nguồn dữ liệu bền vững. Production dự kiến có hai process từ cùng image: HTTP ingress và fulfillment worker. Local polling chỉ là adapter development thay thế webhook, không chạy cùng webhook cho cùng bot.
 
@@ -156,6 +156,19 @@ Staff resend cần thêm fulfillment.manage; access→order→work→action lock
 hold và confirmation. PostgreSQL guard serialize resend begin với hold; in-flight/uncertain
 chặn hold mới. Quá send deadline không auto-retry, late result không xóa uncertainty.
 Router orders phục vụ customer/staff commands và callbacks; bootstrap wire service/sender.
+
+T12 SupportService sở hữu ticket/customer/order scope, current tickets.manage, persisted
+SUPPORT assignment, immutable encrypted messages và confirmed assignment/closure. Port/repo
+trả DTO; public queue không select ciphertext. Shared access lock trước ticket row lock giữ
+quyền tới commit; decrypt chỉ sau scope check, read/mutation audit atomic. Thread 1 tin/trang,
+queue 5/trang. Support order projection không mở general history hoặc entitlement reader.
+Keyring chung thêm `support-message:v1` AAD gắn ticket/customer/message/author/staff/version.
+Không có Telegram call trong UoW hoặc thay đổi payment/work/allocation từ ticket operations.
+
+Bootstrap load optional public terms file một lần trước Bot/DB, inject PublicTerms snapshot
+vào SupportService; thiếu cấu hình trả chưa sẵn sàng, file lỗi/placeholder fail startup an toàn.
+Router support chỉ validate/render private commands/callbacks; phản hồi lưu inbox, không
+push notification. Checkout consent/live routing T14 và refund/reconciliation T13 còn riêng.
 
 ## Ma trận import bắt buộc
 

@@ -21,6 +21,7 @@ from tests.inventory import inventory_service
 from tests.manual import manual_service
 from tests.resends import RecordingSender, resend_service
 from tests.resources import resource_service
+from tests.support import support_service
 from tests.telegram import TelegramRecorder, callback_update, message_update
 
 
@@ -54,6 +55,7 @@ async def test_start_admin_confirm_revoke_and_settings_use_real_db_outside_teleg
         PaymentService(factory),
         resources=resource_service(migrated_database),
         manual=manual_service(migrated_database),
+        support=support_service(migrated_database),
         history=HistoryService(factory),
         resends=resend_service(migrated_database, RecordingSender(migrated_database)),
     )

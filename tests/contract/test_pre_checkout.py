@@ -32,6 +32,7 @@ async def test_runtime_pre_checkout_uses_service_with_durable_receipt_intake(mon
             manual=AsyncMock(),
             history=AsyncMock(),
             resends=AsyncMock(),
+            support=AsyncMock(),
         )
         await dispatcher.feed_update(recorder.bot, pre_checkout_update())
         assert len(recorder.calls) == 1
@@ -163,6 +164,7 @@ async def test_native_concurrent_dispatch_answers_while_another_update_waits(mon
         manual=AsyncMock(),
         history=AsyncMock(),
         resends=AsyncMock(),
+        support=AsyncMock(),
     )
     started, release, answered = asyncio.Event(), asyncio.Event(), asyncio.Event()
 

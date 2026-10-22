@@ -8,9 +8,12 @@ from telebotshop.domain.models.inventory import (
 )
 from telebotshop.domain.models.manual import ManualEvidence, ManualEvidenceContext
 from telebotshop.domain.models.resources import ResourceContext, ResourcePayload
+from telebotshop.domain.models.support import SupportMessage, SupportMessageContext
 
-type CipherContext = InventoryContext | ResourceContext | ManualEvidenceContext
-type CipherPayload = SecretPayload | ResourcePayload | ManualEvidence
+type CipherContext = (
+    InventoryContext | ResourceContext | ManualEvidenceContext | SupportMessageContext
+)
+type CipherPayload = SecretPayload | ResourcePayload | ManualEvidence | SupportMessage
 
 
 class InventoryCipher(Protocol):

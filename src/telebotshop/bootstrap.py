@@ -32,9 +32,11 @@ from telebotshop.application.services.payments import PaymentService
 from telebotshop.application.services.pre_checkout import PreCheckoutService
 from telebotshop.application.services.resends import ResendService
 from telebotshop.application.services.resources import ResourceService
+from telebotshop.application.services.support import SupportService
 from telebotshop.bot.routers.catalog import create_catalog_router
 from telebotshop.bot.routers.identity import create_customer_router
 from telebotshop.bot.routers.orders import create_order_router
+from telebotshop.bot.routers.support import create_support_router
 from telebotshop.domain.errors import OwnerConfigurationError
 from telebotshop.domain.models.inventory import InventoryCryptoError
 from telebotshop.infrastructure.config import (
@@ -47,6 +49,7 @@ from telebotshop.infrastructure.crypto import AesGcmInventoryCipher
 from telebotshop.infrastructure.database.readiness import database_ready
 from telebotshop.infrastructure.database.uow import unit_of_work
 from telebotshop.infrastructure.delivery.finite import FiniteDeliverySender
+from telebotshop.infrastructure.support import TermsConfigurationError, load_terms
 from telebotshop.infrastructure.telegram.guard import IngressGuard
 from telebotshop.infrastructure.telegram.logging import configure_telegram_logging
 from telebotshop.infrastructure.telegram.payments import PaymentsDispatcher, create_payment_router
@@ -137,6 +140,7 @@ def create_dispatcher(
     manual: ManualFulfillmentService,
     history: HistoryService,
     resends: ResendService,
+    support: SupportService,
 ) -> Dispatcher:
     dispatcher = PaymentsDispatcher(payments.record)
     guard = IngressGuard()
@@ -145,6 +149,7 @@ def create_dispatcher(
     dispatcher.include_router(create_payment_router(payments.record))
     dispatcher.include_router(create_customer_router(identity))
     dispatcher.include_router(create_order_router(history, resends, access))
+    dispatcher.include_router(create_support_router(support, identity))
     dispatcher.include_router(create_catalog_router(catalog))
     dispatcher.include_router(create_admin_router(access))
     dispatcher.include_router(create_catalog_admin_router(catalog, access))
@@ -164,6 +169,7 @@ def create_dispatcher(
 
 async def run_polling(settings: BotSettings, inventory_settings: InventorySettings) -> None:
     configure_telegram_logging()
+    public_terms = load_terms(settings.shop_terms_path)
     cipher = AesGcmInventoryCipher(
         inventory_settings.keyring(),
         inventory_settings.inventory_current_key_version,
@@ -197,6 +203,7 @@ async def run_polling(settings: BotSettings, inventory_settings: InventorySettin
                 manual=ManualFulfillmentService(factory, cipher),
                 history=HistoryService(factory),
                 resends=ResendService(factory, cipher, FiniteDeliverySender(bot)),
+                support=SupportService(factory, cipher, public_terms),
             )
             try:
                 await dispatcher.start_polling(
@@ -262,6 +269,9 @@ def main() -> int:
             return 2
         except PollingStartupError as error:
             print(str(error), file=sys.stderr)
+            return 2
+        except TermsConfigurationError:
+            print("Public terms configuration unavailable or incomplete", file=sys.stderr)
             return 2
         except (SQLAlchemyError, TelegramAPIError, OSError, TimeoutError, InventoryCryptoError):
             print("Bot startup or transport unavailable", file=sys.stderr)

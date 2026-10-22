@@ -88,6 +88,10 @@ def detail_view(view: OrderView, staff: bool, may_resend: bool):
     if view.resend_state:
         text += "\nGửi lại: " + RESEND_LABELS[view.resend_state]
     rows = navigation(staff)
+    if not staff:
+        rows.insert(
+            0, [InlineKeyboardButton(text="Hỗ trợ đơn này", callback_data=f"sp:order:{view.id}")]
+        )
     if view.can_resend and may_resend:
         mode = "t" if staff else "r"
         rows.insert(

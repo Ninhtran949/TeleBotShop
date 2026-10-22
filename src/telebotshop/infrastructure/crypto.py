@@ -23,6 +23,7 @@ from telebotshop.domain.models.inventory import (
 )
 from telebotshop.domain.models.manual import ManualEvidenceContext, evidence_from_record
 from telebotshop.domain.models.resources import ResourceContext, resource_payload_from_record
+from telebotshop.domain.models.support import SupportMessageContext, support_message_from_record
 
 
 def encode(value: object) -> bytes:
@@ -65,7 +66,9 @@ class AesGcmInventoryCipher(InventoryCipher):
     def _record(context: CipherContext, payload: CipherPayload) -> dict[str, str]:
         record = asdict(payload)
         decoded = (
-            evidence_from_record(record)
+            support_message_from_record(record)
+            if isinstance(context, SupportMessageContext)
+            else evidence_from_record(record)
             if isinstance(context, ManualEvidenceContext)
             else payload_from_record(context.kind, record)
             if isinstance(context, InventoryContext)
@@ -77,6 +80,18 @@ class AesGcmInventoryCipher(InventoryCipher):
 
     @staticmethod
     def _aad(context: CipherContext, version: int) -> bytes:
+        if isinstance(context, SupportMessageContext):
+            return encode(
+                [
+                    "support-message:v1",
+                    str(context.ticket_id),
+                    str(context.customer_id),
+                    str(context.message_id),
+                    str(context.author_id),
+                    context.staff,
+                    version,
+                ]
+            )
         if isinstance(context, ManualEvidenceContext):
             return encode(
                 [
@@ -135,7 +150,9 @@ class AesGcmInventoryCipher(InventoryCipher):
             )
             record = json.loads(plaintext)
             return (
-                evidence_from_record(record)
+                support_message_from_record(record)
+                if isinstance(context, SupportMessageContext)
+                else evidence_from_record(record)
                 if isinstance(context, ManualEvidenceContext)
                 else payload_from_record(context.kind, record)
                 if isinstance(context, InventoryContext)

@@ -12,6 +12,7 @@ from telebotshop.application.ports.manual import ManualRepository
 from telebotshop.application.ports.orders import OrderRepository
 from telebotshop.application.ports.payments import PaymentRepository
 from telebotshop.application.ports.resources import ResourceRepository
+from telebotshop.application.ports.support import SupportRepository
 
 
 class UnitOfWork(Protocol):
@@ -25,6 +26,7 @@ class UnitOfWork(Protocol):
     resources: ResourceRepository
     manual: ManualRepository
     history: HistoryRepository
+    support: SupportRepository
 
     async def commit(self) -> None: ...
 

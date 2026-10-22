@@ -1,6 +1,6 @@
 # Implementation plan và task ledger
 
-Status: **T01–T11 hoàn tất local; T12–T18 pending**. Owner giao T11 qua `continue`; hoàn tất 2026-10-22. HEAD `f245807` (T10), index trống; agent không stage/commit/push hoặc tự mở rộng T12.
+Status: **T01–T12 hoàn tất local; T13–T18 pending**. Owner giao T12 tường minh. HEAD `d4e7bdd` (T11), index trống; `temp.md` là user file untracked được giữ nguyên. Agent không stage/commit/push.
 
 ## Cách nhận và bàn giao task
 
@@ -785,7 +785,84 @@ Check scope: **H** = hai harness commands trong PROJECT. **C** = applicable lock
 
   **T11 hoàn tất local; dừng trước T12 pending, cần được giao riêng.**
 
-- [ ] **T12 — Support và payment support.** Depends: T11. Spec: AO-02,03. Scope: tickets, staff assignment/scoped replies, `/paysupport`, terms/support navigation. Acceptance: đúng owner/ticket permission; lỗi paid/uncertain có support path; real terms/support identity là Owner input, tests dùng nội dung giả rõ ràng. Verify: C + D, cross-user/ticket isolation và sanitized output contracts.
+- [x] **T12 — Support và payment support.** Depends: T11. Spec: AO-02,03. Scope: tickets, staff assignment/scoped replies, `/paysupport`, terms/support navigation. Acceptance: đúng owner/ticket permission; lỗi paid/uncertain có support path; real terms/support identity là Owner input, tests dùng nội dung giả rõ ràng. Verify: C + D, cross-user/ticket isolation và sanitized output contracts.
+
+  Owner giao T12; chọn dùng temp.md làm điều khoản chính thức và sẽ điền thông tin còn
+  trống. File là nội dung, không mở thêm gift/Google/refund features. Lát triển khai:
+  (a) typed encrypted ticket messages + bounded public terms loader; (b) own-customer/
+  assigned-support ticket inbox, linked-order ownership, idempotent messages; (c) confirmed
+  assignment/closure với current grants/version/audit; (d) private Telegram navigation,
+  scoped replies, paid/uncertain order help, gates/review/handoff. Reply lưu vào thread
+  bền vững để khách xem/làm mới, chưa tự push notification; notification routing ở T14.
+  Terms chưa cấu hình hoặc còn placeholders không được công bố như chính sách hoàn chỉnh.
+
+  - [x] **T12.a — Encrypted ticket domain và public terms.** Typed GENERAL/PAYMENT/DELIVERY,
+    OPEN/CLOSED, 2000-byte message validator/strict codec và AES-GCM support-message:v1
+    context ticket/customer/message/author/staff/key version. Optional SHOP_TERMS_PATH đọc
+    bounded trusted public UTF-8 .md/.txt snapshot; không URL/UNC/placeholder fallback.
+    Raw UNC phải bị chặn trước resolve; focused failing regression rồi sửa/green.
+  - [x] **T12.b — Scoped persistent inbox.** Support port/repository/UoW, migration
+    0012_support, unique request dedup first-write-wins, immutable own-order link/composite
+    FK, encrypted initial body + header + audit atomic. Customer own tickets; current grant
+    và actual persisted SUPPORT assignment trước decrypt. Queue 5/thread 1; public linked
+    order context không cấp general orders.read/entitlement access.
+  - [x] **T12.c — Confirmed staff assignment và closure.** OWNER/ADMIN current ticket grant
+    assign/reassign tới current ticket-granted target; SUPPORT không self-assign. Actor/mode/
+    ticket/version/10-minute actions, current scope/grant recheck, access→ticket→action locks,
+    immutable SQL transition/deferred atomic guards. Close/reply races hai physical backend
+    pids, duplicate create/reply/confirm, expiry/cancel/revoke/reassign và lost ACK có tests.
+  - [x] **T12.d — Private bot, review/gates/docs.** /support, /paysupport, /terms, /tickets,
+    /ticket, /ticket_reply, /staff_tickets, /staff_reply, /ticket_assign, /ticket_close,
+    /staff_close và callbacks cùng Back/Home/Cancel. Home/admin/order-help wired; full real
+    dispatcher + PostgreSQL + SDK mocks giữ no DB connection tại network. Callers/fixtures,
+    startup guard, .env.example và relevant docs đồng bộ; không thêm dependency.
+
+  **Verification 2026-10-22, Windows/CPython 3.12.15/uv 0.13.4; các gates dưới exit 0:**
+
+  | Command / gate | Kết quả |
+  | --- | --- |
+  | `uv lock --check`; `uv sync --locked --no-build` | PASS; manifest/lock cũ không đổi. |
+  | `uv run --no-sync ruff check .`; `uv run --no-sync ruff format --check .` | PASS; 260 Python files formatted. Không disable rule/skip test. |
+  | `uv run --no-sync pytest tests/unit tests/contract tests/architecture -q --tb=line --junitxml=.cache/t12-c.xml` | **463 passed** trong 28.97s. |
+  | `APP_ENV=test` + exact test DSN, `uv run --no-sync pytest tests/integration -q --tb=line --junitxml=.cache/t12-d.xml` | **360 passed** trong 480.38s, PostgreSQL 18.6 thật, isolated markers/schemas; không SQLite. |
+  | `uv run --no-sync python scripts/check_architecture.py` | PASS import matrix. |
+  | `python scripts/verify_harness.py`; `python -B -m unittest discover -s tests -p test_harness.py -v` | PASS; **6 tests**. Upstream originals/checksums không đổi. |
+  | `uv build --no-sources` + wheel/sdist inspection | PASS; 111 source modules khớp byte hash, packaged README khớp, không cache/tools/venv/tests/.env/temp. |
+  | Locked runtime export, fresh `.cache/t12-wheel-runtime`, offline hash-checked dependencies, exact wheel install, `uv pip check`, isolated `python -I` smoke | PASS; 111 matching modules, poisoned settings gồm SHOP_TERMS_PATH, no network/no pytest; native AES-GCM roundtrip + wrong-AAD cho 8 typed contexts. |
+  | `uv audit --locked` | PASS; không known vulnerabilities/adverse statuses trong 49 third-party packages tại thời điểm kiểm tra; native OSV audit, không phải release/container audit. |
+  | `.venv/Scripts/python.exe -B .cache/t12-mutation-check.py` | Green control 1 pass; isolated copy bỏ assigned-ticket SQL filter làm đúng 1 failure, 0 fixture errors/skips. Main source hashes giữ nguyên, mutated copy restored; evidence `.cache/t12-mutation/`. |
+  | Independent read-only review | Không Critical/Required finding về scope/decrypt, AAD, action/SQL atomicity, migrations, output bounds/startup/wiring; reviewer không sửa source hoặc chạy live. |
+  | `git diff --check`; UTF-8/local links/fences/protected/index/checklist | PASS; 50 changed/new files (39 Python, 10 Markdown, 1 env example), riêng temp.md là preexisting user file. 48 local links tồn tại; 111 source + 111 test + 13 migration Python files khớp reviewed snapshot; 41 protected baseline files và temp.md nguyên bytes, index trống, chỉ T01–T12 done/T13–T18 pending. |
+
+  Native evidence: ownership/cross-ticket action replay bị chặn trước ciphertext; current
+  target grant và reassignment/revocation được check lại; encrypted bodies không có plaintext
+  trong audit/queue/logs. Precommit failure rollback ticket/body/action/audit; lost ACK replay
+  không duplicate/overwrite. Immutable messages/header/action/deferred first-message và
+  matching action guards kiểm tra bằng SQL thật. Close-vs-reply test cả hai ticket-lock
+  outcomes bằng hai connections. 0011 upgrade/downgrade/reupgrade giữ PENDING/SENDING/SENT/
+  UNCERTAIN resend/payment/allocation/attempt history; có ticket history thì refuse downgrade.
+  Full bot test kiểm tra private actor destination, UTF-16 message <4096, no previews/raw
+  body logs, pool checkedout=0 tại network và không financial/delivery/allocation mutation.
+
+  Review optional: thêm dedicated two-connection revoke-vs-detail và reassignment-vs-reply
+  tests. Hiện tests hai trường hợp này là sequential; review shared access lock (revoke cần
+  exclusive) và ticket FOR UPDATE thấy ordering đúng, không Required fix. Không claim đã
+  kiểm chứng riêng hai race này bằng concurrent tests.
+
+  Post-test: database identity/version/marker đúng; **0 tbs_test schemas / 0 other clients**.
+  Xác minh Docker project telebotshop-t02/service postgres-test/resolved workspace rồi chỉ
+  stop service test; không xóa volume/dev DB hoặc dừng Docker Desktop.
+
+  **Owner setup và giới hạn:** không cần key/provider/server mới cho T12 local. Reuse keyring,
+  fake fixtures và SDK mocks; không chạy polling/messages/payment/refund thật. Owner chấp
+  thuận `temp.md` làm điều khoản chính thức, sẽ điền placeholders; giữ nguyên user file
+  untracked, không tự xuất bản. Sau khi điền ngày hiệu lực, operator, thời gian phản hồi/
+  xử lý, privacy URL, đặt SHOP_TERMS_PATH theo README và restart polling. Support username
+  thật qua existing /setsupport nếu cần contact. Loader chỉ kiểm tra định dạng/placeholder,
+  không thẩm định pháp lý. Reply chỉ lưu inbox, notification routing/checkout consent/live
+  acceptance T14; refund/reconciliation T13; retention/release/restore vẫn gate riêng.
+
+  **T12 hoàn tất local; dừng trước T13 pending, cần được giao riêng.**
 
 - [ ] **T13 — Refund và privileged operations.** Depends: T12. Spec: OP-06, AO-01,06; FD-06. Scope: persisted refund intents, action confirmation/dedup, grant-aware admin refund UI và uncertain reconciliation path. Acceptance: only authorized full refund; no refund-vs-send race, no automatic uncertain retry/restock; audit/business state atomic. Verify: C + D và focused security review với refund timeout/replay/worker concurrency. Actual real-account refund không được thực hiện từ việc task code được giao.
 

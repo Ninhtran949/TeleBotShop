@@ -2,6 +2,7 @@ import base64
 import binascii
 import json
 import re
+from pathlib import Path
 from typing import Literal
 
 from pydantic import Field, IPvAnyAddress, SecretStr, field_validator, model_validator
@@ -53,6 +54,7 @@ class BotSettings(Settings):
     app_env: Literal["development", "test"]
     bot_token: SecretStr = Field(repr=False)
     owner_id: int = Field(repr=False)
+    shop_terms_path: Path | None = Field(default=None, repr=False)
 
     @field_validator("owner_id", mode="before")
     @classmethod

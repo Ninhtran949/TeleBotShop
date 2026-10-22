@@ -1,10 +1,10 @@
-# Security controls — T03–T11
+# Security controls — T03–T12
 
 Phạm vi hiện có: identity, permission, audit, public catalog/admin, encrypted key/license
 inventory/resource sources, orders/approval/receipt/paid entitlement, typed delivery worker,
 manual completion và development polling. Đây là controls đã
 triển khai/automated-test, chưa là production hoặc toàn bộ shop security acceptance.
-History/resend có T11 local evidence. Tickets/refund, webhook và release có gate riêng trong
+History/resend và support tickets có T11–T12 local evidence. Refund, webhook và release có gate riêng trong
 [implementation plan](plans/shop/implementation-plan.md).
 
 | Boundary | Control hiện tại | Evidence |
@@ -12,7 +12,7 @@ History/resend có T11 local evidence. Tickets/refund, webhook và release có g
 | Telegram → identity | Actor từ authenticated Bot API Update; private chat ID bằng actor ID, chặn bot/group/inline/inaccessible message. Username chỉ là metadata. `/start` upsert theo unique ID, giữ UUID/registration; chỉ `get_my_profile(actor_id)` đọc profile. | Customer bot contracts, PostgreSQL concurrent identity và bot integration. |
 | Config → Owner | Explicit `OWNER_ID`, persisted singleton khóa transaction, một Owner role tối đa; mismatch/missing role fail-closed, restart không khôi phục grants. | Same/different-ID bootstrap races, removed-role/mismatch tests. |
 | Actor → protected use case | Default deny, đọc quyền DB hiện tại, explicit staff grants dưới role ceiling; Owner-only access/settings mutations. Actor context không chứa cached role. | Authorization matrix, direct unauthorized calls, grant/revoke và private admin contracts. |
-| Customer/staff → resource | Customer ownership và SUPPORT assignment là domain/application contracts từ resource server đã load; staff không impersonate buyer. | Unit ownership matrix và PostgreSQL assigned/unassigned SUPPORT checks. Order/ticket endpoints thật thuộc T11/T12. |
+| Customer/staff → resource | Customer ownership và SUPPORT assignment là domain/application contracts từ resource server đã load; staff không impersonate buyer. | Unit ownership matrix, native scoped order/ticket endpoints và PostgreSQL assigned/unassigned SUPPORT checks. |
 | Callback → mutation | Random UUID token lưu DB, actor/target/action/expected version/10-minute expiry; cancel và applied dedup. Không lấy target/price/role từ confirm callback. | Concurrent confirmations/grants, stale/expired/cancelled/replayed tokens, role-switch tests. |
 | Mutation → audit | Mutation, redacted audit và applied marker cùng commit; unique correlation; PostgreSQL append-only trigger chặn UPDATE/DELETE/TRUNCATE. | Immediate audit/deferred commit failure rollback, audit tampering tests. |
 | Transaction → Telegram | Repo không commit; use case giữ SHARE authorization lock hoặc exclusive mutation lock đến hết transaction; đóng UoW rồi mới send/edit/ack. | Real lock-timeout/revoke test, independent sessions, pool assertion tại từng mocked Telegram call. |
@@ -157,6 +157,26 @@ IDs và fixed events, không lưu payload. PostgreSQL tests có hai physical con
 Refund persistence/resolver vẫn T13; test REFUNDED hiện là injected repository DTO cho
 fail-closed allowlist, chưa native refund ledger/race acceptance. Không suy live Telegram
 hoặc exactly-once delivery từ mock contracts. Staff manual work không tự replay.
+
+T12 ticket body có thể chứa dữ liệu riêng tư: giới hạn 2000 UTF-8 bytes, AES-GCM với AAD
+ticket/customer/message/author/staff/key-version, repr-hidden; không plaintext/hash body
+trong logs/audit hoặc metadata queue. Current tickets.manage và actual DB assignment kiểm
+tra trước ciphertext/decrypt. SUPPORT không self-assign/global browse hoặc đọc inventory;
+OWNER/ADMIN assign cần grant hiện tại, target cũng cần current ticket grant.
+
+Assign/close confirmation ràng buộc actor/mode/ticket/version/TTL, giữ access→ticket→action
+locks tới atomic commit/audit. Replay, reassignment/revocation, audit/commit failure/lost ACK,
+cross-user/IDOR, tamper và native two-connection close/reply có tests. Independent review
+không Required finding; concurrent revoke-vs-detail và reassign-vs-reply chưa có dedicated
+two-connection tests, current shared access/ticket locks được kiểm tra qua code và các
+focused sequential/lock tests. Queue 5/thread 1 và plain text/no previews giữ bounded output.
+Reply lưu thread, không tự push; không đổi financial/allocation/delivery state.
+
+Public terms là trusted operator file được cấu hình rõ, UTF-8 .md/.txt ≤24000 bytes, không
+URL/UNC. Startup đọc bounded snapshot trước Bot/DB; malformed/missing/placeholder file
+từ chối với fixed error, không echo đường dẫn/body. Không config thì báo chưa sẵn sàng;
+không công bố draft temp.md tự động. Owner đã chọn nội dung nhưng còn phải điền placeholder.
+Checkout consent/live acceptance T14, không suy ra legal/compliance status từ loader/tests.
 
 Giới hạn cần hoàn thiện ở task tương ứng:
 

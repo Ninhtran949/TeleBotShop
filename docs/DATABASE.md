@@ -2,7 +2,7 @@
 
 T02 dùng PostgreSQL **18.6**, SQLAlchemy **2.0.55** Async + asyncpg **0.32.0** và
 Alembic **1.20.0**. T03 thêm identity/access/settings và audit repositories bằng SQLAlchemy
-Core tables; không trả ORM/session ra application. Head hiện tại **`0011_history`**;
+Core tables; không trả ORM/session ra application. Head hiện tại **`0012_support`**;
 `0001_runtime` giữ nguyên, `0002_identity` thêm identity/Owner/audit, `0003_access` thêm
 explicit grants, settings và confirmation. T04 thêm `0004_catalog`; T05 thêm encrypted
 inventory/actions/key verifiers; T06 thêm orders/items/invoice intents và finite reservations.
@@ -12,6 +12,8 @@ T09 mở finite work/attempt/recovery/observations, giữ nguyên revisions 1–
 T10 thêm resource versions/order bindings/manual confirmations và mở nonfinite commerce;
 revisions 0001–0009 giữ nguyên.
 T11 thêm resend actions và hai history indexes; không sửa revisions 0001–0010.
+T12 thêm support tickets/messages/actions và orders(id,buyer_id) unique để giữ linked-order
+ownership bằng composite FK; không sửa revisions 0001–0011 hoặc payment/delivery state.
 
 | Tables | Contract |
 | --- | --- |
@@ -32,6 +34,9 @@ T11 thêm resend actions và hai history indexes; không sửa revisions 0001–
 | `order_resources` | Một immutable resource binding/nonfinite item; item/version FKs và unique pair; deferred trigger bắt order thiếu binding. Finite item vẫn bắt buộc exact inventory unit, nonfinite item không có unit. |
 | `manual_actions` | Actor/work/attempt-bound confirmation, encrypted evidence với AAD riêng, 10-minute expiry; một applied completion/work, terminal action immutable; completion/work/order deferred atomic. |
 | `resend_actions` | Actor/mode/work/original-attempt-bound 10-minute confirmation; immutable identity/history, một PENDING/SENDING/UNCERTAIN mỗi work; riêng send window/result/late observation, không tạo entitlement mới. |
+| `support_tickets` | Customer/request unique, GENERAL/PAYMENT/DELIVERY, OPEN/CLOSED, optional immutable own-order link, assignee và monotonic version; indexed customer/open/assignee queues. |
+| `support_messages` | Immutable encrypted body/nonce/key version, ticket/author/staff-bound context, author/request unique và indexed bounded thread; insert locks OPEN ticket và advances version. |
+| `support_actions` | Actor/mode/ticket/version-bound assignment/close, 10-minute TTL, pending/applied/cancelled; atomic matching ticket mutation và audit. |
 | `invoice_intents` | Một opaque payload/order, durable unique attempt, READY/SENDING/SENT/REJECTED/UNCERTAIN/CANCELLED; no automatic resend, không phải payment receipt. |
 | `pre_checkout_approvals` | Order PK/FK, unique opaque query ID, approved_at theo DB time; chặn UPDATE/DELETE/TRUNCATE. Một approval/order, giữ qua timeout/expiry. |
 | `payments` | Append-only bounded financial receipt, unique Telegram charge, nullable payer/order, MATCHED/REQUIRES_REVIEW + reason; partial unique primary MATCHED/order, không cấm extra receipts. |
@@ -366,3 +371,27 @@ history hiển thị uncertain và confirm/prepare persist UNCERTAIN. Reconcile 
 Upgrade/downgrade rỗng giữ nguyên cả bảy T10 finite states/attempt/payment/ciphertext/audit.
 Downgrade từ chối nếu có bất kỳ resend history; không xóa dữ liệu để vượt guard. Không sửa
 0001–0010 hoặc các predecessor functions. Refund schema/state transitions vẫn tới T13.
+
+## T12 support ticket history
+
+Ticket customer/kind/order/request identity immutable; composite order/customer FK chặn
+cross-buyer order link. Per-customer request và per-author message request dedup first write
+wins, không overwrite nội dung khi edited update/replay. Body tối đa 2000 UTF-8 bytes được
+mã hóa với existing keyring; DB chỉ giữ ciphertext 17–4256 bytes, nonce 12 bytes và positive
+key version, unique version/nonce. Message UPDATE/DELETE/TRUNCATE bị chặn.
+
+Create khóa customer, ghi header + initial customer message + audit trong một UoW;
+deferred constraint không cho commit ticket thiếu tin đầu. Staff giữ access SHARE lock,
+ticket FOR UPDATE cho read/reply/actions; SUPPORT check actual persisted assignee trước
+ciphertext/decrypt. Queue 5 headers/trang, detail 1 encrypted body/trang; không dump thread.
+
+Message insert chỉ khi OPEN, customer author đúng buyer khi nonstaff; trigger tăng ticket
+version/update time. Assign/close cần matching APPLIED action của version cũ; deferred guard
+đòi final header khớp version+1/target/state. Closed ticket terminal, action identity/terminal
+immutable; cancelled/stale/expired không mutate. Grant/ownership vẫn do application kiểm tra
+trong cùng transaction; DB role production separation còn release gate.
+
+Migration tests nâng từ 0011 với resend PENDING/SENDING/SENT/UNCERTAIN và giữ nguyên payment,
+allocation/work/history. Downgrade chỉ cho schema chưa có ticket; có history thì từ chối,
+không xóa để vượt guard. Native two-connection close/reply và duplicate action/message
+tests dùng database marker/schema cô lập. Ticket operations không gọi network/refund/delivery.

@@ -19,11 +19,12 @@ Mục tiêu từ [`task.md`](../task.md): shop Telegram bán tài nguyên số �
 | T09: finite worker và recovery | Đã triển khai local: head `0009_fulfillment`, fenced attempts, authorized decrypt, separate claim/prepare/complete transactions, known-rate bounded retry, uncertain recovery/observations và durable attention/alerts; Telegram mock. |
 | T10: file/reusable/manual fulfillment | Đã triển khai local: head `0010_resources`, confirmed encrypted resource versions, pinned order entitlement, typed document/text/manual notice và current-permission staff completion/evidence/audit; PostgreSQL thật, Telegram mock. |
 | T11: history, dashboard và safe resend | Đã triển khai và kiểm chứng local: head `0011_history`, own-customer/scoped-staff history, 30-day real dashboard, shared entitlement reader và durable actor-bound resend; giữ nguyên primary work/allocation, hold/uncertain fences. |
+| T12: support và payment support | Đã triển khai và kiểm chứng local: head `0012_support`, encrypted own-customer/assigned-staff ticket inbox, linked-order context, confirmed assignment/closure, `/paysupport` và optional public terms snapshot. Phản hồi lưu thread; Telegram mock. |
 | Public Buy, production webhook, CI, production image/deployment | Chưa triển khai; các phần tương ứng trong cây kiến trúc là cấu trúc đích. |
 | BotFather/test bot, live credentials, backup/restore | Chưa cấu hình hoặc kiểm chứng; local PostgreSQL dùng credentials giả tách biệt. |
-| Git | Branch `dev`, HEAD `f245807` (T10). T10 còn staged ở lượt kiểm tra đầu T11, đã được commit bên ngoài agent trước baseline/edits T11; snapshot index trống. T11 working tree; agent không stage/commit/push/discard work. |
+| Git | Branch `dev`, HEAD `d4e7bdd` (T11), index trống tại baseline T12. T12 working tree; `temp.md` là user file untracked giữ nguyên. Agent không stage/commit/push/discard work. |
 
-Trạng thái và bằng chứng của từng slice nằm trong [implementation plan](plans/shop/implementation-plan.md). T01–T11 hoàn tất local; **T12** là task tiếp theo, còn pending và cần được giao riêng. Không tự chạy toàn roadmap khi chỉ được giao một task.
+Trạng thái và bằng chứng của từng slice nằm trong [implementation plan](plans/shop/implementation-plan.md). T01–T12 hoàn tất local; **T13** là task tiếp theo, còn pending và cần được giao riêng. Không tự chạy toàn roadmap khi chỉ được giao một task.
 
 ## Đọc theo nhiệm vụ
 
@@ -82,7 +83,7 @@ python -B -m unittest discover -s tests -p test_harness.py -v
 
 HTTP không cần bot secrets. Polling cần BOT_TOKEN/OWNER_ID và inventory key settings trong environment bảo vệ, chỉ
 development/test, từ chối existing webhook; hướng dẫn trong README. Không chạy command
-polling thật từ các task code/test T03–T11. Worker/resend gửi entitlement/customer notice nên chỉ operator chạy khi có authorization gửi thực tế; tests mock. `expire-orders` chạy một batch DB-only,
+polling thật từ các task code/test T03–T12. Worker/resend gửi entitlement/customer notice nên chỉ operator chạy khi có authorization gửi thực tế; tests mock. `expire-orders` chạy một batch DB-only,
 không Bot/keys; hướng dẫn và giới hạn tại README/DATABASE.
 
 T09 verification: **402 unit/contract/architecture**, **238 PostgreSQL integration**,
@@ -94,7 +95,7 @@ typed key/license, bounded retry-after, late observations, commit failures/lost 
 immutable history và T08 preservation/downgrade/metadata. Bốn mutation probes token/hold/recovery/
 late-result bị bắt; source restored trước final C/D. Runtime/lifecycle và Telegram API mocked;
 PostgreSQL thật, không suy live message hoặc production SLO từ local tests.
-Chưa public Buy/core UI (T14), history/resend (T11), refund/reconcile
+Tại mốc T09 chưa public Buy/core UI (T14), history/resend (T11), refund/reconcile
 (T13), production webhook/deploy/restore hoặc live Telegram validation. Alerts hiện durable
 attention/audit/log; staff notification routing T14. Chi tiết ở [SECURITY](SECURITY.md) và ledger.
 
@@ -124,6 +125,25 @@ revoke/IDOR/commit/lost ACK/expiry/corrupt material và real dispatcher mocks c�
 Telegram/live credentials không dùng. T12 cần Owner chốt support identity/terms trước chạy
 thật, tests có thể dùng nội dung giả rõ ràng. T13 mới có refund ledger/reconciliation:
 REFUNDED test hiện là injected repository DTO, chưa native refund-ledger acceptance.
+
+T12 verification: **463 unit/contract/architecture**, **360 PostgreSQL integration** và
+**6 harness** pass. Lock/sync/lint/format/architecture/build/audit (49 packages) đạt;
+fresh wheel runtime có **111 matching modules**, no pytest/network, poisoned settings và
+native AES-GCM 8 typed contexts pass. Isolated assigned-queue-filter mutation bị focused
+test bắt, green control đạt/zero fixture errors/source chính không đổi. Independent review
+không Critical/Required finding; optional concurrent revoke/reassign test gap ghi tại ledger.
+Native close/reply hai physical connections, duplicate create/reply/confirm, IDOR/grant/
+assignment-before-decrypt, fail-commit/lost ACK, immutable guards và 0011 migration
+preservation/downgrade đều có coverage. Test service đã dừng sau khi không còn schema/client.
+
+**Owner setup T12 local: không cần thêm key/provider/server.** Owner chọn `temp.md` làm
+điều khoản chính thức và sẽ điền thông tin còn trống; agent giữ nguyên file. Sau khi điền
+ngày hiệu lực/đơn vị vận hành/SLA/xử lý/privacy URL, đặt `SHOP_TERMS_PATH` tới public UTF-8
+file và restart polling theo [README](../README.md#hỗ-trợ-và-điều-khoản-t12). Không config
+thì `/terms` báo chưa sẵn sàng; configured draft lỗi/placeholder từ chối startup an toàn.
+Support contact thật vẫn qua Owner `/setsupport`. Live Telegram/checkout consent/notification
+routing T14, refund/reconciliation T13 và retention/release gates còn riêng; không gọi local
+tests là đã xuất bản điều khoản hoặc nghiệm thu live.
 
 ## Điều kiện cần Owner cung cấp trước khi mở bán
 

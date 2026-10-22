@@ -27,6 +27,8 @@ def admin_menu(actor: Access) -> tuple[str, InlineKeyboardMarkup]:
         f"• {PERMISSION_LABELS[permission]}" for permission in sorted(actor.permissions)
     )
     rows = []
+    if Permission.MANAGE_TICKETS in actor.permissions:
+        rows.append([InlineKeyboardButton(text="Hỗ trợ khách hàng", callback_data="st:list:0")])
     if Permission.VIEW_ORDERS in actor.permissions:
         rows.append([InlineKeyboardButton(text="Tổng quan đơn", callback_data="ord:d:0")])
         rows.append([InlineKeyboardButton(text="Đơn hàng", callback_data="ord:a:0")])

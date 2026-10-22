@@ -4,14 +4,15 @@ Shop Telegram bán tài nguyên số có quyền phân phối, thanh toán Stars
 Trạng thái và task đang được thực hiện: [PROJECT](docs/PROJECT.md),
 [implementation plan](docs/plans/shop/implementation-plan.md).
 
-T01–T11 đã có toolchain/runtime, identity/permissions/audit, catalog PostgreSQL với năm loại
+T01–T12 đã có toolchain/runtime, identity/permissions/audit, catalog PostgreSQL với năm loại
 metadata công khai, admin product maintenance và kho key/license mã hóa, import atomic,
 retire/low-stock có phân quyền và order/reservation/expiry cho key/license. Durable invoice
 intent, pre-checkout approval, durable receipt, paid allocation và READY fulfillment intent đã có.
 T09 có worker giao key/license, fenced attempts/recovery và bounded known-failure retry.
 T10 thêm nguồn mã hóa theo phiên bản cho file/reusable/manual, document dispatch và staff
 completion có bằng chứng/xác nhận. T11 thêm lịch sử đơn, dashboard staff và resend cùng
-entitlement có xác nhận. Customer Buy/navigation còn core UI T14; chưa có production webhook.
+entitlement có xác nhận. T12 thêm ticket mã hóa, phân công/phản hồi theo quyền, `/paysupport`
+và điều khoản do Owner cung cấp. Customer Buy/navigation còn core UI T14; chưa có production webhook.
 Telegram API trong tests là mock; PostgreSQL integration dùng DB thật.
 
 ## Môi trường development
@@ -77,7 +78,7 @@ Operator có thể chạy một batch tối đa 100 đơn hết hạn và 100 in
 uv run --no-sync telebotshop expire-orders
 ```
 
-Lệnh cần DATABASE_URL/schema head `0011_history`, không cần BOT_TOKEN/OWNER_ID hoặc
+Lệnh cần DATABASE_URL/schema head `0012_support`, không cần BOT_TOKEN/OWNER_ID hoặc
 inventory keys; không gửi Telegram. TTL reservation 15 phút theo DB time. Claim SENDING
 quá 30 giây chuyển UNCERTAIN, giữ attempt và không tự gửi lại. Chạy lặp theo lịch vận hành
 khi có checkout; T06 chưa có scheduler/worker hoặc thao tác tự reconcile/resend invoice.
@@ -100,7 +101,7 @@ handler không send/decrypt/giao hàng. Chưa có nghiệm thu tải/latency Tel
 
 ## Worker giao hàng (T09–T10)
 
-Sau migration head `0011_history`, đặt BOT_TOKEN/OWNER_ID, DATABASE_URL và inventory
+Sau migration head `0012_support`, đặt BOT_TOKEN/OWNER_ID, DATABASE_URL và inventory
 keys qua environment bảo vệ như polling. Command có thể gửi secret tới buyer; chỉ operator
 chạy với đúng bot/environment và authorization gửi thực tế. Automated tests dùng mock.
 
@@ -160,7 +161,7 @@ Trong private chat:
 - `/admin` kiểm tra quyền hiện tại. Owner có Quản lý quyền, Cài đặt, Sản phẩm và Kho hàng;
   staff có `catalog.manage` thấy Sản phẩm, `inventory.manage` thấy Kho hàng.
   T10 thêm Nguồn giao hàng và Giao hàng thủ công theo quyền hiện tại.
-  T11 thêm Đơn hàng/Tổng quan đơn; refund/reconcile thuộc T13.
+  T11 thêm Đơn hàng/Tổng quan đơn; T12 thêm Ticket theo `tickets.manage`; refund/reconcile thuộc T13.
 - Owner dùng `/grant <Telegram_ID> <ADMIN|SUPPORT> <permission>` hoặc `/revoke` với cùng
   ba tham số, sau đó bấm **Xác nhận** trong 10 phút. Người nhận phải `/start` trước;
   lấy ID của chính mình từ Tài khoản. Mỗi lần chỉ đổi một permission.
@@ -359,6 +360,48 @@ chặn resend tiếp và chặn đặt refund hold tới khi được đối so�
 PostgreSQL test cô lập và Telegram mock. Real Telegram acceptance vẫn cần test bot/account,
 secrets/keyring hiện có qua environment bảo vệ ở T14. Refund ledger còn T13: contract test
 cho repository state `REFUNDED` không thay thế native refund-vs-resend acceptance lúc đó.
+
+## Hỗ trợ và điều khoản (T12)
+
+Khách dùng **Hỗ trợ**, `/support`, `/paysupport` hoặc **Hỗ trợ đơn này** trong chi tiết đơn.
+Các đường dẫn này hoạt động cho cả đơn paid/failed/uncertain; tạo ticket không thay đổi
+payment, allocation hoặc delivery. `/paysupport` hướng dẫn tạo ticket loại PAYMENT,
+kể cả chưa có mã đơn; không tự suy receipt hoặc credit tài khoản.
+
+- Tạo bằng `/ticket GENERAL|PAYMENT|DELIVERY [ORDER_ID]`, xuống dòng rồi nhập nội dung.
+  ORDER_ID nếu có phải thuộc chính khách. Mỗi tin tối đa 2000 UTF-8 bytes, được mã hóa
+  bằng keyring hiện có; không gửi mật khẩu/OTP/mã khôi phục/thông tin thẻ.
+- `/tickets` và `/ticket TICKET_ID` chỉ mở ticket của mình. `/ticket_reply TICKET_ID`,
+  xuống dòng rồi nhập phản hồi. Danh sách 5 ticket/trang; thread 1 tin/trang, mới nhất trước.
+- Staff có current `tickets.manage` dùng `/staff_tickets` và `/staff_reply TICKET_ID`
+  với nội dung ở dòng tiếp theo. SUPPORT chỉ thấy ticket đã được phân công trong DB.
+  Linked-order context chỉ là public snapshot qua ticket đúng scope; không cấp orders.read
+  hoặc đọc tài nguyên giao hàng.
+- OWNER/ADMIN có quyền ticket dùng `/ticket_assign TICKET_ID TELEGRAM_ID` hoặc `-` để bỏ
+  phân công. Người nhận phải có current `tickets.manage`. `/ticket_close TICKET_ID`
+  (khách), `/staff_close TICKET_ID` (staff) và phân công đều cần confirmation trong 10 phút;
+  kiểm tra lại actor, quyền, assignment và phiên bản ticket. Ticket đã đóng không nhận tin mới.
+
+Phản hồi được lưu bền vững trong thread; khách mở/làm mới ticket để đọc. Chưa có push
+notification; UI chỉ xác nhận đã lưu. Support contact vẫn dùng `/setsupport username`
+với Owner confirmation; mặc định chưa cấu hình, bot không xác minh account đó thuộc shop.
+
+**Owner setup T12:** không cần thêm key/provider/server cho local tests. Owner đã chọn
+`temp.md` làm điều khoản chính thức và sẽ điền ngày hiệu lực, đơn vị vận hành, thời gian
+phản hồi/xử lý và liên kết privacy còn trống. File này được giữ nguyên, chưa tự công bố.
+Sau khi hoàn thiện nội dung công khai, đặt đường dẫn rồi khởi động lại polling theo phần trên:
+
+```powershell
+$env:SHOP_TERMS_PATH = (Resolve-Path -LiteralPath '.\temp.md').Path
+```
+
+`/terms` đọc snapshot từ file UTF-8 `.md`/`.txt` cục bộ tối đa 24000 bytes, chia trang
+3000 bytes, plain text và tắt previews. Không cấu hình thì báo chưa sẵn sàng; file thiếu,
+sai định dạng hoặc còn placeholder khiến polling từ chối startup trước khi tạo Bot/DB.
+Không tải URL/UNC. Nội dung này phải được Owner hoàn thiện và chịu trách nhiệm; bot không
+tự thẩm định pháp lý. Checkout consent và Telegram test/live acceptance thuộc T14;
+refund/reconciliation thuộc T13. Yêu cầu payment support/terms tham chiếu
+[Telegram Stars](https://core.telegram.org/bots/payments-stars).
 
 ## PostgreSQL integration tests
 

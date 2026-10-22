@@ -22,6 +22,7 @@ from tests.inventory import inventory_service
 from tests.manual import manual_service
 from tests.resends import delivered_order, resend_service
 from tests.resources import FILE_ID, resource_service
+from tests.support import support_service
 from tests.telegram import TelegramRecorder, callback_update, message_update
 
 
@@ -55,6 +56,7 @@ async def test_real_history_resend_routes_are_scoped_and_send_only_to_original_b
         PaymentService(factory),
         resources=resource_service(engine),
         manual=manual_service(engine),
+        support=support_service(engine),
         history=HistoryService(factory),
         resends=resend_service(engine, FiniteDeliverySender(telegram.bot)),
     )

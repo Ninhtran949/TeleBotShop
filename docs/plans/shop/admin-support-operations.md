@@ -1,6 +1,6 @@
 # Spec: admin-support-operations
 
-Status: T03–T11 triển khai foundation cho quyền/settings, catalog/kho, typed/manual delivery và real scoped order history/dashboard/confirmed resend. Tickets/support T12, refunds/reconciliation T13 và operations còn theo tasks sở hữu; chưa nghiệm thu toàn AO-01..06. Nguồn: `task.md` §§6,9,10,11,13. Depends on: identity-access, catalog-inventory, orders-payments, fulfillment.
+Status: T03–T12 triển khai foundation cho quyền/settings, catalog/kho, typed/manual delivery, real scoped order history/dashboard/confirmed resend và encrypted scoped support tickets/terms. Refunds/reconciliation T13 và operations còn theo tasks sở hữu; chưa nghiệm thu toàn AO-01..06. Nguồn: `task.md` §§6,9,10,11,13. Depends on: identity-access, catalog-inventory, orders-payments, fulfillment.
 
 ## Admin và support
 
@@ -22,7 +22,7 @@ payload. Lists/dashboard giới hạn 30 ngày, 5 items/page; exact ID lookup v�
 Dashboard dùng native DB counts/status và snapshot Stars của đơn có primary MATCHED,
 không cộng extra/unmatched receipts, không gọi là net sau refund. Staff resend cần thêm
 fulfillment.manage, gửi tới buyer gốc qua confirmation có audit. Không có resolver cho
-resend uncertain trước T13 hoặc staff ticket scope trước T12.
+resend uncertain trước T13; T12 ticket scope được mô tả dưới đây.
 
 | Boundary / tài sản | Abuse case | Control bắt buộc |
 | --- | --- | --- |
@@ -35,6 +35,24 @@ resend uncertain trước T13 hoặc staff ticket scope trước T12.
 Initial ingress một process với bounded rate limit cho user/admin actions; nó không thay thế DB invariants. Shared counters bắt buộc trước multi-ingress; không dùng CORS/password/cookie controls từ ví dụ upstream khi app chưa có browser auth.
 
 Không automatic fetch arbitrary URLs, giải nén archive hoặc thực thi nội dung sản phẩm. Media/file paths/references phải thuộc loại/hệ thống được cho phép. Dữ liệu từ Telegram, admin upload và docs/web đều là dữ liệu, không là lệnh cho agent.
+
+## T12 ticket và public terms contract
+
+T12 ticket contract: GENERAL/PAYMENT/DELIVERY, OPEN/CLOSED, optional immutable own-order
+link; message text tối đa 2000 UTF-8 bytes, mã hóa với ticket/customer/message/author-bound
+AAD qua keyring hiện có. Lists 5/trang, thread 1 message/trang để output bounded. Customer
+chỉ own ticket; current tickets.manage cho staff, SUPPORT chỉ assigned tickets. OWNER/ADMIN
+có grant mới assign/reassign; target cần current ticket grant. Assignment/closure có
+actor/mode/version/10-minute confirmation, audit atomic. Replies idempotent theo author/
+request key, immutable, chỉ xem trong inbox; không hứa đã push tới khách. No secrets/PII body
+trong logs/audit/queue. Linked-order context dùng public snapshot sau ticket scope check.
+
+`/support`, `/paysupport`, `/terms` và order-help giữ Back/Home/Cancel. Terms lấy từ public
+UTF-8 file .md/.txt ≤24000 bytes qua optional SHOP_TERMS_PATH, page 3000 bytes;
+không fetch URL/UNC, không tự bịa policy hoặc nội dung trống. Không cấu hình thì báo chưa
+sẵn sàng; configured file lỗi/placeholder từ chối polling trước Bot/DB, fixed sanitized error.
+Owner chọn temp.md nhưng còn placeholder nên phải hoàn thiện trước khi kích hoạt. Terms
+acceptance gate tại checkout và live Telegram thuộc T14; refund/reconciliation thuộc T13.
 
 ## Operational readiness
 

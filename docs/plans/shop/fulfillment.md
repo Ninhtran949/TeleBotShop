@@ -111,6 +111,11 @@ REFUNDED và mọi state ngoài DELIVERED bị service allowlist chặn trước
 repository DTO test hiện là simulated contract vì schema refund tới T13. T13 phải thêm
 native refund-ledger/resend race acceptance, không dựa riêng vào test này.
 
+T12 order-help tạo own-order PAYMENT/DELIVERY ticket cho cả paid failure/uncertain. Staff
+có ticket scope chỉ xem public order snapshot, không mở entitlement hoặc dùng ticket để
+resend/complete/refund. Phản hồi support không thay work/payment/allocation; uncertainty
+vẫn cần reconciliation T13. Persistent inbox hiện chưa có proactive notification (T14).
+
 ## Guarantee và giới hạn
 
 Cam kết duy nhất ở issuance/ownership: một unit không cấp cho hai khách, một order item không được cấp key khác vì delivery lỗi. DB và Telegram không có chung transaction. Vì vậy không thể tuyên bố message được gửi chính xác một lần trong mọi crash/timeout; duplicate message khi manual resend không được biến thành duplicate resource allocation.

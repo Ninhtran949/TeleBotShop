@@ -24,6 +24,7 @@ def dispatcher_for(receiver):
         manual=AsyncMock(),
         history=AsyncMock(),
         resends=AsyncMock(),
+        support=AsyncMock(),
     )
 
 

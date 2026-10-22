@@ -75,7 +75,7 @@ class IngressGuard(BaseMiddleware):
                 )
             except InventoryCryptoError:
                 logger.warning("telegram_inventory_crypto_failure")
-                text = "Không thể xác minh mã hóa kho. Vui lòng kiểm tra cấu hình bảo mật."
+                text = "Không thể xác minh dữ liệu bảo mật. Vui lòng kiểm tra cấu hình bảo mật."
             except InvalidInput:
                 text = "Dữ liệu không hợp lệ. Vui lòng kiểm tra hướng dẫn."
             except CatalogNotFound:
