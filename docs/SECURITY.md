@@ -1,9 +1,10 @@
-# Security controls — T03–T09
+# Security controls — T03–T10
 
 Phạm vi hiện có: identity, permission, audit, public catalog/admin, encrypted key/license
-inventory, finite orders/approval/receipt/paid allocation, finite delivery worker và development polling. Đây là controls đã
+inventory/resource sources, orders/approval/receipt/paid entitlement, typed delivery worker,
+manual completion và development polling. Đây là controls đã
 triển khai/automated-test, chưa là production hoặc toàn bộ shop security acceptance.
-Delivery ba loại còn lại, history/tickets/refund, webhook và release có gate riêng trong
+History/tickets/refund, webhook và release có gate riêng trong
 [implementation plan](plans/shop/implementation-plan.md).
 
 | Boundary | Control hiện tại | Evidence |
@@ -120,6 +121,24 @@ chặn nhét freeform SDK errors vào ledger. Hold thắng order lock chặn dec
 uncertain chặn automatic hold/refund. Refund/reconcile/resend authorization/UI còn task sau.
 Operational alert hiện là durable attention/audit + warning work UUID/fixed code; staff
 notification delivery T14. Two-worker và two-order-lock-direction tests dùng PostgreSQL thật.
+
+T10 source registration yêu cầu current `inventory.manage` trong use case, actor/product/
+expected-version-bound confirmation. Source context tách khỏi finite inventory, immutable
+ciphertext và order binding; sửa nguồn không cấp nội dung khác cho paid buyer. File chỉ
+nhận bounded opaque `file_id` từ registered document, kiểm tra tên/MIME và typed format,
+không fetch URL, download local file hoặc fallback wrong-type sang text. SendDocument ACK
+thiếu document hoặc sai chat về UNCERTAIN. Các giới hạn reference/content là input policy
+local, không gán thành Telegram API published caps.
+
+Manual sender chỉ nhận customer notice; staff instructions được giữ trong encrypted source.
+Queue/detail/prepare/confirm/cancel cần current `fulfillment.manage` trước ciphertext/decrypt;
+read quyền `orders.read` không thay thế quyền mutation. ADMIN phải có explicit grant mới;
+không backfill user grants. Private staff detail dùng plain text, disabled previews và read
+audit. Evidence tối đa 500 UTF-8 bytes, mã hóa dưới work/action-bound AAD, không echo vào
+preview/log/audit; general audit chỉ lưu digest. Confirmation actor/attempt/TTL-bound, giữ
+access lock qua order→work→action mutation; hold/state/revoked/replay checks và PostgreSQL
+deferred/unique guards bảo vệ completion. DB/audit failure rollback, lost ACK replay không
+giao lần hai. Bằng chứng là staff attestation về xử lý bên ngoài, chưa được bot tự xác minh.
 
 Giới hạn cần hoàn thiện ở task tương ứng:
 

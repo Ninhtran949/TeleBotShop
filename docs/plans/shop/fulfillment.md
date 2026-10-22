@@ -1,6 +1,6 @@
 # Spec: fulfillment
 
-Status: T09 đã triển khai finite UNIQUE_KEY/LICENSE worker, claim/lease/recovery/retry/uncertain và pre-send hold boundary. File/reusable/manual còn T10, history/resend T11, actual refund/reconciliation T13; chưa toàn FD hoặc Telegram live acceptance. Nguồn: `task.md` §§4,5,11. Depends on: committed work contract của [orders-payments](orders-payments.md). [ADR-0002](../../adr/0002-payment-and-fulfillment-safety.md) quyết định delivery guarantee.
+Status: T09–T10 đã triển khai typed worker đủ năm loại, claim/lease/recovery/retry/uncertain, encrypted source snapshots và permissioned manual completion. History/resend còn T11, actual refund/reconciliation T13; chưa toàn FD hoặc Telegram live acceptance. Nguồn: `task.md` §§4,5,11. Depends on: committed work contract của [orders-payments](orders-payments.md). [ADR-0002](../../adr/0002-payment-and-fulfillment-safety.md) quyết định delivery guarantee.
 
 ## Entitlement và dispatch
 
@@ -54,7 +54,36 @@ API; production cần clock sync. Cancellation không giả SENT/FAILED, durable
 tuần tự mỗi process, nhiều process cạnh tranh qua PostgreSQL. API không giữ UoW/connection.
 Refund hold là DB pre-send boundary có tests cả hai order-lock outcomes, chưa có refund setter/
 operations UI trước T13. Alerts hiện là attention/audit + redacted warning, staff Telegram
-notification routing T14. Public Buy/core navigation còn T14 và ba types còn T10.
+notification routing T14. Public Buy/core navigation còn T14.
+
+## T10 typed resource và manual contract
+
+`resource_versions` giữ typed encrypted DIGITAL_FILE (file_id/name/MIME), REUSABLE_RESOURCE
+TEXT hoặc DOCUMENT, MANUAL_FULFILLMENT (customer notice + private staff instructions).
+Nguồn có public metadata snapshot, protected actor/product/expected-source confirmation;
+order_resources chốt một source UUID/item trước invoice. Nguồn retired còn hiệu lực với
+order đã chốt. Finite unit và nonfinite resource dùng XOR/FKs riêng; không giả finite stock.
+
+Worker mở đúng bound resource sau paid/buyer/item/destination/type/hold/fence checks,
+kiểm tra payload/metadata và gửi document hoặc plain text. File chỉ nhận opaque file_id,
+không fetch URL hoặc fallback sang text; file ACK thiếu document là UNCERTAIN. Manual sender
+chỉ nhận ManualNotice, không nhận staff instructions. Success của waiting notice giữ
+attempt SENT nhưng work AWAITING_MANUAL và order FULFILLING; không tự mark DELIVERED.
+
+Manual queue/detail/complete cần current `fulfillment.manage`, ADMIN có explicit grant;
+`orders.read` không cho đọc hướng dẫn/giao hàng. Staff xử lý bên ngoài rồi tạo confirmation
+với nonempty evidence ≤500 UTF-8 bytes. Evidence được mã hóa dưới product/SKU/work/action/
+key-version AAD riêng; preview/log/audit không echo reference. Confirm trong 10 phút, cùng
+actor/attempt và paid waiting work, không hold, giữ quyền tới commit. Action APPLIED,
+work SENT, order DELIVERED và audit digest atomic; replay chỉ trả đã hoàn tất. Hai action
+hoặc hai connection không thể complete hai lần; cancelled/expired/revoked/held/stale bị chặn.
+Staff attestation không thay thế live evidence về công việc thực tế. Failed/uncertain notice
+không được complete qua command này trước khi reconciliation thuộc task sở hữu giải quyết.
+
+Verify local: native crypto context/format/tamper tests; PostgreSQL source-vs-checkout,
+publication/completion/hold races, commit/lost-ACK/immutable-history/migration tests;
+runtime admin/message/document contracts mock Telegram, bảo đảm không network trong UoW.
+Không có thêm key/provider/server cho T10 local; Telegram external acceptance còn T14.
 
 Nguồn API đối chiếu 2026-10-22: [sendMessage](https://core.telegram.org/bots/api#sendmessage),
 [retry_after](https://core.telegram.org/bots/api#responseparameters),

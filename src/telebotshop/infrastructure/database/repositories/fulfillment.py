@@ -10,7 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from telebotshop.application.ports.fulfillment import FulfillmentRepository
 from telebotshop.domain.errors import InvalidAction
-from telebotshop.domain.models.catalog import ProductType
+from telebotshop.domain.models.catalog import ProductType, metadata_from_record
 from telebotshop.domain.models.fulfillment import (
     DeliveryAttempt,
     DeliveryClaim,
@@ -23,6 +23,7 @@ from telebotshop.domain.models.fulfillment import (
 from telebotshop.domain.models.inventory import InventoryContext, SealedPayload
 from telebotshop.domain.models.orders import OrderStatus
 from telebotshop.domain.models.payments import CommittedWork
+from telebotshop.domain.models.resources import ResourceContext, ResourceState
 from telebotshop.infrastructure.database.models.fulfillment import (
     delivery_attempts,
     delivery_observations,
@@ -31,10 +32,11 @@ from telebotshop.infrastructure.database.models.identity import users
 from telebotshop.infrastructure.database.models.inventory import inventory_units
 from telebotshop.infrastructure.database.models.orders import order_items, orders
 from telebotshop.infrastructure.database.models.payments import fulfillments
+from telebotshop.infrastructure.database.models.resources import order_resources, resource_versions
 
 
 def fulfillment_from_row(row: RowMapping) -> Fulfillment:
-    committed = {field.name: row[field.name] for field in fields(CommittedWork)}
+    committed = {field.name: row.get(field.name) for field in fields(CommittedWork)}
     committed["product_type"] = ProductType(committed["product_type"])
     return Fulfillment(
         CommittedWork(**committed),
@@ -119,6 +121,8 @@ class SqlFulfillmentRepository(FulfillmentRepository):
 
     async def entitlement(self, work: Fulfillment) -> EncryptedEntitlement | None:
         committed = work.work
+        if committed.resource_id is not None:
+            return await self._resource_entitlement(work)
         row = (
             (
                 await self.session.execute(
@@ -161,6 +165,57 @@ class SqlFulfillmentRepository(FulfillmentRepository):
             )
         )
 
+    async def _resource_entitlement(self, work: Fulfillment) -> EncryptedEntitlement | None:
+        committed = work.work
+        row = (
+            (
+                await self.session.execute(
+                    select(
+                        resource_versions.c.id,
+                        resource_versions.c.product_id,
+                        resource_versions.c.sku,
+                        resource_versions.c.product_type,
+                        resource_versions.c.metadata,
+                        resource_versions.c.key_version,
+                        resource_versions.c.nonce,
+                        resource_versions.c.ciphertext,
+                    )
+                    .select_from(
+                        resource_versions.join(
+                            order_resources, order_resources.c.resource_id == resource_versions.c.id
+                        )
+                        .join(order_items, order_items.c.id == order_resources.c.order_item_id)
+                        .join(users, users.c.id == committed.buyer_id)
+                    )
+                    .where(
+                        resource_versions.c.id == committed.resource_id,
+                        resource_versions.c.product_type == committed.product_type,
+                        resource_versions.c.product_id == order_items.c.product_id,
+                        resource_versions.c.state.in_(
+                            [ResourceState.ACTIVE, ResourceState.RETIRED]
+                        ),
+                        order_items.c.id == committed.order_item_id,
+                        order_items.c.order_id == committed.order_id,
+                        order_items.c.inventory_unit_id.is_(None),
+                        users.c.telegram_id == committed.destination_telegram_id,
+                    )
+                )
+            )
+            .mappings()
+            .one_or_none()
+        )
+        return (
+            None
+            if row is None
+            else EncryptedEntitlement(
+                ResourceContext(
+                    row["product_id"], row["sku"], row["id"], ProductType(row["product_type"])
+                ),
+                SealedPayload(row["key_version"], row["nonce"], row["ciphertext"]),
+                metadata_from_record(ProductType(row["product_type"]), row["metadata"]),
+            )
+        )
+
     async def start_send(self, claim: DeliveryClaim, now: datetime, deadline: datetime) -> None:
         result = await self.session.execute(
             update(delivery_attempts)
@@ -193,7 +248,13 @@ class SqlFulfillmentRepository(FulfillmentRepository):
         due_at: datetime,
         code: DeliveryCode | None,
     ) -> None:
-        attempt_state = DeliveryState.RETRYABLE if state == DeliveryState.RETRY_WAIT else state
+        attempt_state = (
+            DeliveryState.RETRYABLE
+            if state == DeliveryState.RETRY_WAIT
+            else DeliveryState.SENT
+            if state == DeliveryState.AWAITING_MANUAL
+            else state
+        )
         changed = await self.session.execute(
             update(delivery_attempts)
             .where(
@@ -204,7 +265,7 @@ class SqlFulfillmentRepository(FulfillmentRepository):
             .values(
                 state=attempt_state,
                 completed_at=now,
-                message_id=result.message_id if state == DeliveryState.SENT else None,
+                message_id=result.message_id if attempt_state == DeliveryState.SENT else None,
                 error_code=code,
                 retry_after=result.retry_after
                 if attempt_state == DeliveryState.RETRYABLE

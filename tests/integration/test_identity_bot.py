@@ -17,6 +17,8 @@ from telebotshop.bootstrap import create_dispatcher
 from telebotshop.domain.models.access import Permission
 from telebotshop.infrastructure.database.uow import unit_of_work
 from tests.inventory import inventory_service
+from tests.manual import manual_service
+from tests.resources import resource_service
 from tests.telegram import TelegramRecorder, callback_update, message_update
 
 
@@ -48,6 +50,8 @@ async def test_start_admin_confirm_revoke_and_settings_use_real_db_outside_teleg
         inventory_service(migrated_database),
         PreCheckoutService(factory),
         PaymentService(factory),
+        resources=resource_service(migrated_database),
+        manual=manual_service(migrated_database),
     )
     await dispatcher.feed_update(telegram.bot, message_update("/start"))
     await dispatcher.feed_update(telegram.bot, message_update("/admin"))

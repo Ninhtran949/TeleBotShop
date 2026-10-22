@@ -7,6 +7,7 @@ from telebotshop.application.ports.fulfillment import DeliverySender
 from telebotshop.application.ports.inventory_crypto import InventoryCipher
 from telebotshop.application.ports.uow import UnitOfWork, UnitOfWorkFactory
 from telebotshop.domain.errors import InvalidInput
+from telebotshop.domain.models.catalog import ProductType
 from telebotshop.domain.models.fulfillment import (
     DeliveryAttempt,
     DeliveryClaim,
@@ -16,9 +17,15 @@ from telebotshop.domain.models.fulfillment import (
     DeliveryResult,
     DeliveryState,
     Fulfillment,
+    ManualNotice,
 )
 from telebotshop.domain.models.inventory import InventoryCryptoError
 from telebotshop.domain.models.orders import Order, OrderStatus
+from telebotshop.domain.models.resources import (
+    ManualPayload,
+    ResourceContext,
+    validate_resource_payload,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -93,15 +100,26 @@ class FulfillmentService:
                 and order.product_type == committed.product_type
                 and await work.payments.primary(order.id) == committed.payment_id
             )
-            encrypted = await work.fulfillment.entitlement(fulfillment) if allowed else None
             code = (
                 DeliveryCode.RETRY_EXHAUSTED
                 if fulfillment.send_count >= self.policy.max_attempts
                 else DeliveryCode.INVALID_ENTITLEMENT
             )
+            try:
+                encrypted = await work.fulfillment.entitlement(fulfillment) if allowed else None
+            except (InventoryCryptoError, InvalidInput):
+                encrypted, code = None, DeliveryCode.CRYPTO
             if encrypted is not None:
                 try:
                     payload = self.cipher.open(encrypted.context, encrypted.sealed)
+                    if isinstance(encrypted.context, ResourceContext):
+                        if encrypted.metadata is None:
+                            raise InvalidInput("Missing resource snapshot")
+                        validate_resource_payload(
+                            committed.product_type, encrypted.metadata, payload
+                        )
+                        if isinstance(payload, ManualPayload):
+                            payload = ManualNotice(payload.customer_notice)
                     now = await work.orders.now()
                     if attempt.lease_expires_at <= now:
                         return None
@@ -162,6 +180,11 @@ class FulfillmentService:
                     )
                     due_at = now + timedelta(seconds=max(result.retry_after, backoff))
                     state = DeliveryState.RETRY_WAIT
+            if (
+                state == DeliveryState.SENT
+                and fulfillment.work.product_type == ProductType.MANUAL_FULFILLMENT
+            ):
+                state = DeliveryState.AWAITING_MANUAL
             await work.fulfillment.finish(claim, result, state, now, due_at, code)
             if state in {DeliveryState.SENT, DeliveryState.FAILED}:
                 await work.fulfillment.set_order_state(

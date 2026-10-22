@@ -1,6 +1,6 @@
 # Implementation plan và task ledger
 
-Status: **T01–T09 hoàn tất; T10–T18 pending**. Owner giao T09 qua continue; hoàn tất local 2026-10-22. HEAD `19e7b53` (T08); index trống giữ nguyên, không stage/commit/push hoặc tự mở rộng T10.
+Status: **T01–T10 hoàn tất; T11–T18 pending**. Owner giao T10 tường minh; hoàn tất local 2026-10-22. HEAD `6582dd0` (T09), index trống; agent không stage/commit/push hoặc tự mở rộng T11.
 
 ## Cách nhận và bàn giao task
 
@@ -615,7 +615,102 @@ Check scope: **H** = hai harness commands trong PROJECT. **C** = applicable lock
   operations (T13); hold chỉ là pre-send boundary, chưa toàn FD-06/refund acceptance.
   **T09 hoàn tất; dừng trước T10 pending, cần được giao riêng.**
 
-- [ ] **T10 — File, reusable và manual fulfillment.** Depends: T09. Spec: CI-04, FD-04,06. Scope: từng typed dispatch adapter và manual work completion có permission/audit. Acceptance: mỗi loại giao đúng payload cho đúng buyer; unsupported/corrupt payload fail-closed; MANUAL không giả delivered khi payment tới. Verify: C + D + mocked message/document contracts; tách T10.a/b/c nếu cần, child nào xong không thay thế coverage cả ba loại.
+- [x] **T10 — File, reusable và manual fulfillment.** Depends: T09. Spec: CI-04, FD-04,06. Scope: từng typed dispatch adapter và manual work completion có permission/audit. Acceptance: mỗi loại giao đúng payload cho đúng buyer; unsupported/corrupt payload fail-closed; MANUAL không giả delivered khi payment tới. Verify: C + D + mocked message/document contracts; tách T10.a/b/c nếu cần, child nào xong không thay thế coverage cả ba loại.
+
+  Owner giao T10 ngày 2026-10-22. Lượt Git đầu thấy HEAD `19e7b53` và T09 staged;
+  trước snapshot/edits T10 đã có commit `6582dd0` (T09) bên ngoài agent. Snapshot và cuối
+  task đều empty index. Agent giữ work có sẵn, không stage/commit/push. Snapshot để review
+  T10 lưu local trong `.cache/t10-baseline/`, không chứa runtime secrets.
+
+  - [x] **T10.a — Encrypted reusable sources và checkout.** Typed file/text/document/manual
+    payloads; protected, confirmed resource versions; immutable source snapshot theo order.
+    Nối create/pre-checkout/cancel/expiry/payment cho nonfinite types, giữ exact finite
+    reservation/allocation invariants. Migration mới, không sửa revisions 0001–0009.
+  - [x] **T10.b — Typed worker dispatch.** Gửi registered file_id bằng document, reusable
+    text/document và manual waiting notice đúng private buyer; reuse fencing/retry/uncertain
+    boundaries. Không fetch URL, không lộ staff instructions, không coi waiting notice là delivered.
+  - [x] **T10.c — Manual work và completion.** Protected queue/detail, current permission
+    trước decrypt, actor-bound confirmation có bằng chứng, atomic completion/audit; replay,
+    revoke, hold, stale/uncertain/concurrent actions fail closed.
+  - [x] **T10.d — Review, gates và handoff.** C + D + H, migration preservation/integrity,
+    failure/race và Telegram mock contracts, build/runtime smoke, final diff; cập nhật docs
+    và báo Owner setup/external gates rõ ràng. Dừng trước T11.
+
+  Threat/abuse focus: cross-buyer entitlement, URL/token-bearing file references, wrong
+  type/format/AAD, resource edit sau checkout, forged/replayed manual completion, revoked
+  staff, refund hold vs worker/completion, lost commit ACK và ambiguous Telegram result.
+  Chỉ fake fixtures + isolated PostgreSQL + mocked Telegram; không chạy bot/payment/refund thật.
+
+  **Implementation/evidence:**
+
+  - `domain/models/resources.py`, resources port/service/repository/model và
+    `admin/resources.py`: typed DIGITAL_FILE(file_id/name/MIME), reusable TEXT/DOCUMENT,
+    manual notice/private instructions. Current inventory.manage, key-verifier guard,
+    actor/product/expected-source/10-minute confirmation; immutable encrypted source
+    versions, một ACTIVE/product, giữ RETIRED cho old entitlement. `/resource` đăng ký
+    document reference hoặc bounded text; không download/fetch URL hoặc echo private material.
+  - Orders/pre-checkout/payments thêm nonfinite binding, không giả inventory unit. Cùng
+    UoW lưu order/item/source snapshot/invoice/audit; pre-checkout giữ buyer/XTR/giá/TTL/
+    active-product/query-id checks. Receipt/PAID/primary work atomic; nguồn đã chốt không
+    đổi vì publication mới hoặc catalog edit. Finite reserve/allocation/release giữ nguyên.
+  - Fulfillment/domain/SQL reader + sender mở file/reusable/manual. Authorized ciphertext
+    load trước native open; wrong metadata/format/AAD/envelope fail closed, giữ paid binding.
+    Document dùng sendDocument, ACK thiếu document/sai chat về UNCERTAIN. Manual sender chỉ
+    nhận ManualNotice; waiting notice thành công giữ order FULFILLING/work AWAITING_MANUAL.
+    Reuse attempts/fence/lease/retry/hold/recovery/late observations của T09.
+  - `domain/models/manual.py`, manual port/service/repository/model và `admin/manual.py`:
+    queue/detail, permission-before-decrypt, read audit; `fulfillment.manage` ceiling cho
+    OWNER/ADMIN, ADMIN cần explicit grant mới. `/manual_complete WORK_ID` + nonempty evidence
+    ≤500 UTF-8 bytes tạo actor/work/attempt-bound confirmation. Evidence có namespace/AAD
+    riêng, preview/log/audit không echo reference. Current grant/hold/state/expiry recheck;
+    action APPLIED + work SENT + order DELIVERED + audit digest atomic. Handler/service đều
+    giữ quyền đúng boundary; không network trong UoW. Bootstrap wire routers/services/cipher.
+  - `0010_resources`: ba tables resource_versions/order_resources/manual_actions, nullable
+    unit chỉ cho nonfinite, source/item composite FK + XOR, resource/history/attempt guards,
+    manual atomic completion và new permission seed, không backfill user grants. Native
+    upgrade từ bảy T09 work states giữ toàn old columns/rows/receipt/ciphertext; metadata
+    không drift. Safe downgrade giữ finite history, từ chối xóa resource/manual/grant history.
+    Bốn frozen predecessor functions khớp T08/T09 sau normalize SQL whitespace.
+
+  **TDD và verification thực tế (CPython 3.12.15, PostgreSQL test 18.6):**
+
+  | Command/check | Result |
+  | --- | --- |
+  | Focused RED → GREEN | New resource/manual module/router contracts fail trước implementation; wrong typed document đã không bị chặn, missing-document ACK đã bị nhận SENT, corrupt-envelope load đã propagate thay vì durable failure; thêm tests rồi sửa và chạy green. |
+  | `uv lock --check`; `uv sync --locked --no-build` | Exit 0; lock/dependency versions giữ nguyên. |
+  | `uv run --no-sync ruff check .`; `uv run --no-sync ruff format --check .` | Exit 0; 225 Python files formatted. |
+  | `uv run --no-sync python scripts/check_architecture.py` | Exit 0; import matrix đạt. |
+  | `uv run --no-sync pytest tests/unit tests/contract tests/architecture -q --tb=short --junitxml=.cache/t10-c.xml` | **445 passed**, 24.40s; zero errors/failures/skips. |
+  | `APP_ENV=test`, exact isolated `TEST_DATABASE_URL`; `uv run --no-sync pytest tests/integration -q --tb=short --junitxml=.cache/t10-d.xml` | **301 passed**; retained JUnit: 301 cases, zero errors/failures/skips, 272.883s. PostgreSQL thật, mỗi test schema có ownership marker. |
+  | `python scripts/verify_harness.py`; `python -B -m unittest discover -s tests -p test_harness.py -v` | Exit 0; original skills/references/license/provenance giữ nguyên, **6 harness tests passed**. |
+  | `uv build --no-sources` | Exit 0; sdist + wheel; mọi 96 Python modules khớp source, không cache/tools/tests/env secrets trong artifact. |
+  | README runtime export + fresh `.cache/t10-wheel-runtime` | Locked hash-checked 37 runtime dependencies cài offline/no-build, wheel no-index/no-deps; `python -I` import **96 modules** với poisoned settings/no network/no pytest; native AES-GCM roundtrip/wrong-AAD đạt cho 7 typed contexts. |
+  | `uv audit --locked` | Exit 0 sau read-only network access; **49 packages, no known vulnerabilities/adverse statuses** tại lúc chạy, không phải whole-release security claim. |
+  | Independent read-only review | Không required finding; kiểm tra source/payment ownership, permission/decrypt, typed sender, manual/hold/fence và migration predecessor equivalence. Không sửa snapshot để review. |
+  | Mutation probes trong isolated source copy | Green control **10 passed**. Bỏ resource UUID AAD, bỏ manual hold check, không cho retired snapshot, hoặc đánh manual delivered ngay khi notice SENT đều bị focused tests bắt; **4 probes**, zero fixture errors. Copy được restore; source chính không đổi. |
+  | `git diff --check`; UTF-8/local links/fences/protected/index/checklist | PASS; 71 changed/new files (61 Python, 10 Markdown), 50 local links tồn tại; 96 source modules khớp reviewed snapshot, 34 protected baseline files giữ nguyên; empty index, chỉ T01–T10 done, T11–T18 pending. |
+
+  Native failure/race cases gồm source publication-vs-checkout hai physical connections và
+  cả hai lock outcomes, competing publication/completion, same-action replay, cross-user/
+  revoked grant, stale/cancelled/expired/held action, native crypto tamper, commit/audit rollback,
+  lost ACK và immutable SQL history. Real dispatcher + message/document mocks xác nhận
+  không DB connection qua Telegram, private staff notes/evidence không gửi buyer hoặc preview.
+
+  Một lượt probe ban đầu gặp fixture timeout vì Docker Engine đã tắt, không tính là mutation
+  evidence. Khởi động installed Docker Desktop ở background, verify đúng test service/workspace,
+  chạy green control rồi cả bốn probe có assertion failures và zero setup errors. Cleanup query
+  xác minh **0 tbs_test schemas, 0 other client connections**, dừng riêng postgres-test;
+  không drop dev DB/volume hoặc dừng Docker Desktop toàn máy. Không chạy live Telegram,
+  real payment/refund, production migration/deploy, stage/commit/push.
+
+  **Owner setup T10 local: không cần thêm key/provider/server.** Reuse keyring contract hiện
+  có với fake fixtures. Trước Telegram external acceptance T14 cần test bot/account, secure
+  BOT_TOKEN/OWNER_ID/key environment và inventory/file có quyền phân phối/hướng dẫn staff thật.
+  Không gửi secrets trong chat. Staff completion là attestation việc xử lý bên ngoài, chưa có
+  kiểm chứng tự động về evidence thực tế. History/resend T11, refund/reconcile T13, operational
+  alerts/test-webhook/live acceptance T14, production/restore T18 còn theo task sở hữu.
+
+  **T10 hoàn tất local; dừng trước T11 pending, cần được giao riêng.**
 
 ## Phase 3
 

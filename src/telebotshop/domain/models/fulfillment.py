@@ -4,7 +4,7 @@ from enum import StrEnum
 from uuid import UUID
 
 from telebotshop.domain.errors import InvalidInput
-from telebotshop.domain.models.catalog import ProductType
+from telebotshop.domain.models.catalog import ProductMetadata, ProductType, validate_text
 from telebotshop.domain.models.identity import validate_telegram_id
 from telebotshop.domain.models.inventory import (
     InventoryContext,
@@ -14,6 +14,12 @@ from telebotshop.domain.models.inventory import (
     UniqueKeyPayload,
 )
 from telebotshop.domain.models.payments import CommittedWork
+from telebotshop.domain.models.resources import (
+    DigitalFilePayload,
+    ResourceContext,
+    ReusableDocumentPayload,
+    ReusableTextPayload,
+)
 
 
 class DeliveryState(StrEnum):
@@ -26,6 +32,7 @@ class DeliveryState(StrEnum):
     UNCERTAIN = "UNCERTAIN"
     FAILED = "FAILED"
     ABANDONED = "ABANDONED"
+    AWAITING_MANUAL = "AWAITING_MANUAL"
 
 
 class DeliveryCode(StrEnum):
@@ -101,8 +108,17 @@ class Fulfillment:
 
 @dataclass(frozen=True, repr=False)
 class EncryptedEntitlement:
-    context: InventoryContext
+    context: InventoryContext | ResourceContext
     sealed: SealedPayload
+    metadata: ProductMetadata | None = None
+
+
+@dataclass(frozen=True, repr=False)
+class ManualNotice:
+    customer_notice: str
+
+    def __post_init__(self) -> None:
+        validate_text(self.customer_notice, 500)
 
 
 @dataclass(frozen=True, repr=False)
@@ -110,8 +126,14 @@ class DeliveryRequest:
     work_id: UUID
     attempt_id: UUID
     destination_telegram_id: int
-    context: InventoryContext
-    payload: SecretPayload
+    context: InventoryContext | ResourceContext
+    payload: (
+        SecretPayload
+        | DigitalFilePayload
+        | ReusableTextPayload
+        | ReusableDocumentPayload
+        | ManualNotice
+    )
     deadline: datetime
     timeout_seconds: int
 
@@ -124,12 +146,18 @@ class DeliveryRequest:
             or self.deadline.tzinfo is None
             or type(self.timeout_seconds) is not int
             or not 1 <= self.timeout_seconds <= 20
-            or not isinstance(self.context, InventoryContext)
+            or not isinstance(self.context, (InventoryContext, ResourceContext))
             or not (
                 self.context.kind == ProductType.UNIQUE_KEY
                 and isinstance(self.payload, UniqueKeyPayload)
                 or self.context.kind == ProductType.LICENSE
                 and isinstance(self.payload, LicensePayload)
+                or self.context.kind == ProductType.DIGITAL_FILE
+                and isinstance(self.payload, DigitalFilePayload)
+                or self.context.kind == ProductType.REUSABLE_RESOURCE
+                and isinstance(self.payload, (ReusableTextPayload, ReusableDocumentPayload))
+                or self.context.kind == ProductType.MANUAL_FULFILLMENT
+                and isinstance(self.payload, ManualNotice)
             )
         ):
             raise InvalidInput("Invalid delivery request")

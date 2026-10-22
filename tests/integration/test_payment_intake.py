@@ -14,9 +14,11 @@ from telebotshop.application.services.pre_checkout import PreCheckoutService
 from telebotshop.bootstrap import create_dispatcher
 from telebotshop.infrastructure.database.uow import SqlAlchemyUnitOfWork, unit_of_work
 from tests.inventory import inventory_service
+from tests.manual import manual_service
 from tests.orders import order_service, setup_orders
 from tests.payments import payment_service
 from tests.pre_checkout import payable_invoice
+from tests.resources import resource_service
 from tests.telegram import TelegramRecorder, payment_update, pre_checkout_update
 
 
@@ -37,6 +39,8 @@ async def test_receipt_commit_failure_returns_http_error_and_redelivery_commits_
         inventory_service(engine),
         PreCheckoutService(factory),
         payment_service(engine),
+        resources=resource_service(engine),
+        manual=manual_service(engine),
     )
     # ASGI acknowledgement harness only; production webhook authentication belongs to T14.
     app = FastAPI()
@@ -100,6 +104,8 @@ async def test_real_dispatcher_approval_then_receipt_uses_server_snapshots_witho
         inventory_service(engine),
         PreCheckoutService(factory),
         payment_service(engine),
+        resources=resource_service(engine),
+        manual=manual_service(engine),
     )
     try:
         await dispatcher.feed_update(telegram.bot, pre_checkout_update(payload=order.payload))

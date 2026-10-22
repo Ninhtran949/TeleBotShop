@@ -17,15 +17,19 @@ from sqlalchemy.ext.asyncio import create_async_engine
 from telebotshop.admin.catalog import create_catalog_admin_router
 from telebotshop.admin.identity import create_admin_router
 from telebotshop.admin.inventory import create_inventory_admin_router
+from telebotshop.admin.manual import create_manual_admin_router
+from telebotshop.admin.resources import create_resource_admin_router
 from telebotshop.api.health import create_api
 from telebotshop.application.services.access import AccessService
 from telebotshop.application.services.catalog import CatalogService
 from telebotshop.application.services.fulfillment import FulfillmentService
 from telebotshop.application.services.identity import IdentityService
 from telebotshop.application.services.inventory import InventoryService
+from telebotshop.application.services.manual import ManualFulfillmentService
 from telebotshop.application.services.orders import OrderService
 from telebotshop.application.services.payments import PaymentService
 from telebotshop.application.services.pre_checkout import PreCheckoutService
+from telebotshop.application.services.resources import ResourceService
 from telebotshop.bot.routers.catalog import create_catalog_router
 from telebotshop.bot.routers.identity import create_customer_router
 from telebotshop.domain.errors import OwnerConfigurationError
@@ -125,6 +129,9 @@ def create_dispatcher(
     inventory: InventoryService,
     pre_checkout: PreCheckoutService,
     payments: PaymentService,
+    *,
+    resources: ResourceService,
+    manual: ManualFulfillmentService,
 ) -> Dispatcher:
     dispatcher = PaymentsDispatcher(payments.record)
     guard = IngressGuard()
@@ -136,6 +143,8 @@ def create_dispatcher(
     dispatcher.include_router(create_admin_router(access))
     dispatcher.include_router(create_catalog_admin_router(catalog, access))
     dispatcher.include_router(create_inventory_admin_router(inventory, access))
+    dispatcher.include_router(create_resource_admin_router(resources, access))
+    dispatcher.include_router(create_manual_admin_router(manual, access))
     dispatcher.include_router(create_pre_checkout_router(pre_checkout.check))
     fallback = Router(name="unknown_callback")
 
@@ -178,6 +187,8 @@ async def run_polling(settings: BotSettings, inventory_settings: InventorySettin
                 inventory,
                 PreCheckoutService(factory),
                 PaymentService(factory),
+                resources=ResourceService(factory, cipher),
+                manual=ManualFulfillmentService(factory, cipher),
             )
             try:
                 await dispatcher.start_polling(

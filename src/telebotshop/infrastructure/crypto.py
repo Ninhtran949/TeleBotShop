@@ -7,7 +7,11 @@ from secrets import token_bytes
 from cryptography.exceptions import InvalidTag
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
-from telebotshop.application.ports.inventory_crypto import InventoryCipher
+from telebotshop.application.ports.inventory_crypto import (
+    CipherContext,
+    CipherPayload,
+    InventoryCipher,
+)
 from telebotshop.domain.errors import InvalidInput
 from telebotshop.domain.models.inventory import (
     CryptoProof,
@@ -17,6 +21,8 @@ from telebotshop.domain.models.inventory import (
     SecretPayload,
     payload_from_record,
 )
+from telebotshop.domain.models.manual import ManualEvidenceContext, evidence_from_record
+from telebotshop.domain.models.resources import ResourceContext, resource_payload_from_record
 
 
 def encode(value: object) -> bytes:
@@ -56,25 +62,46 @@ class AesGcmInventoryCipher(InventoryCipher):
         return self._proof
 
     @staticmethod
-    def _record(context: InventoryContext, payload: SecretPayload) -> dict[str, str]:
+    def _record(context: CipherContext, payload: CipherPayload) -> dict[str, str]:
         record = asdict(payload)
-        payload_from_record(context.kind, record)
+        decoded = (
+            evidence_from_record(record)
+            if isinstance(context, ManualEvidenceContext)
+            else payload_from_record(context.kind, record)
+            if isinstance(context, InventoryContext)
+            else resource_payload_from_record(context.kind, record)
+        )
+        if type(decoded) is not type(payload):
+            raise InvalidInput("Invalid encrypted payload type")
         return record
 
     @staticmethod
-    def _aad(context: InventoryContext, version: int) -> bytes:
+    def _aad(context: CipherContext, version: int) -> bytes:
+        if isinstance(context, ManualEvidenceContext):
+            return encode(
+                [
+                    "manual-evidence:v1",
+                    str(context.product_id),
+                    context.sku,
+                    str(context.work_id),
+                    str(context.action_id),
+                    version,
+                ]
+            )
         return encode(
             [
-                "inventory:v1",
+                "resource:v1" if isinstance(context, ResourceContext) else "inventory:v1",
                 str(context.product_id),
                 context.sku,
-                str(context.unit_id),
+                str(
+                    context.resource_id if isinstance(context, ResourceContext) else context.unit_id
+                ),
                 context.kind,
                 version,
             ]
         )
 
-    def seal(self, context: InventoryContext, payload: SecretPayload) -> SealedPayload:
+    def seal(self, context: CipherContext, payload: CipherPayload) -> SealedPayload:
         try:
             record = self._record(context, payload)
             nonce = token_bytes(12)
@@ -100,12 +127,19 @@ class AesGcmInventoryCipher(InventoryCipher):
         except (InvalidInput, ValueError, TypeError):
             raise InventoryCryptoError("Inventory fingerprint failed") from None
 
-    def open(self, context: InventoryContext, sealed: SealedPayload) -> SecretPayload:
+    def open(self, context: CipherContext, sealed: SealedPayload) -> CipherPayload:
         # No decrypt port/use case is exposed before authorized entitlement delivery exists.
         try:
             plaintext = self.keys[sealed.key_version].decrypt(
                 sealed.nonce, sealed.ciphertext, self._aad(context, sealed.key_version)
             )
-            return payload_from_record(context.kind, json.loads(plaintext))
+            record = json.loads(plaintext)
+            return (
+                evidence_from_record(record)
+                if isinstance(context, ManualEvidenceContext)
+                else payload_from_record(context.kind, record)
+                if isinstance(context, InventoryContext)
+                else resource_payload_from_record(context.kind, record)
+            )
         except (InvalidTag, KeyError, ValueError, TypeError, InvalidInput):
             raise InventoryCryptoError("Inventory decryption failed") from None

@@ -2,13 +2,15 @@
 
 T02 dùng PostgreSQL **18.6**, SQLAlchemy **2.0.55** Async + asyncpg **0.32.0** và
 Alembic **1.20.0**. T03 thêm identity/access/settings và audit repositories bằng SQLAlchemy
-Core tables; không trả ORM/session ra application. Head hiện tại **`0009_fulfillment`**;
+Core tables; không trả ORM/session ra application. Head hiện tại **`0010_resources`**;
 `0001_runtime` giữ nguyên, `0002_identity` thêm identity/Owner/audit, `0003_access` thêm
 explicit grants, settings và confirmation. T04 thêm `0004_catalog`; T05 thêm encrypted
 inventory/actions/key verifiers; T06 thêm orders/items/invoice intents và finite reservations.
 T07 thêm immutable query-bound pre-checkout approval và controlled reservation extension.
 T08 thêm receipt/conflict ledger, PAID/attention, permanent ALLOCATED và READY work.
 T09 mở finite work/attempt/recovery/observations, giữ nguyên revisions 1–8.
+T10 thêm resource versions/order bindings/manual confirmations và mở nonfinite commerce;
+revisions 0001–0009 giữ nguyên.
 
 | Tables | Contract |
 | --- | --- |
@@ -25,6 +27,9 @@ T09 mở finite work/attempt/recovery/observations, giữ nguyên revisions 1–
 | `inventory_actions` | Actor/product FKs, import hoặc retire, số lượng 1–1000, 10-minute expiry, status/completed_at. Pending import giữ encrypted envelopes JSONB; retire có composite unit/product FK. Apply/cancel clear envelopes. |
 | `inventory_crypto_state` | Singleton chỉ lưu HMAC verifiers của dedup/AES keys theo version, không lưu raw keys. Khóa row khi kiểm tra/register; từ chối đổi dedup, đổi key cùng version hoặc bỏ registered version. |
 | `orders`, `order_items` | Buyer/action unique, immutable quantity-one XTR/public product/price snapshot và finite unit/product FKs; DB-time TTL, guarded unpaid close và retained history. |
+| `resource_versions` | Immutable encrypted file/text/document/manual source cùng public metadata snapshot; actor/product/previous-version FKs, pending/active/retired/cancelled, một ACTIVE/product; confirmed publication chặn stale version. |
+| `order_resources` | Một immutable resource binding/nonfinite item; item/version FKs và unique pair; deferred trigger bắt order thiếu binding. Finite item vẫn bắt buộc exact inventory unit, nonfinite item không có unit. |
+| `manual_actions` | Actor/work/attempt-bound confirmation, encrypted evidence với AAD riêng, 10-minute expiry; một applied completion/work, terminal action immutable; completion/work/order deferred atomic. |
 | `invoice_intents` | Một opaque payload/order, durable unique attempt, READY/SENDING/SENT/REJECTED/UNCERTAIN/CANCELLED; no automatic resend, không phải payment receipt. |
 | `pre_checkout_approvals` | Order PK/FK, unique opaque query ID, approved_at theo DB time; chặn UPDATE/DELETE/TRUNCATE. Một approval/order, giữ qua timeout/expiry. |
 | `payments` | Append-only bounded financial receipt, unique Telegram charge, nullable payer/order, MATCHED/REQUIRES_REVIEW + reason; partial unique primary MATCHED/order, không cấm extra receipts. |
@@ -293,3 +298,44 @@ mọi work vẫn READY/zero sends/no hold và order chưa vào delivery lifecycl
 Tests clock-controlled seed historical valid attempts hoặc inject DB-time result tại UoW,
 không SQLite, disable triggers hoặc sleep theo lease TTL thật. Two-physical-connection tests
 chứng minh SKIP LOCKED và cả hai thứ tự order lock với hold; gửi Telegram vẫn mock.
+
+## T10 resource entitlements và manual completion
+
+ResourceService đăng ký ciphertext dưới AAD `resource:v1` + product/SKU/resource UUID/type/
+key version; không đổi namespace `inventory:v1` của T05. Reuse keyring/key verifiers hiện có.
+Public metadata riêng giúp kiểm tra file name/MIME, reusable format và manual notice trước
+publication; payload/nonce/version/identity không được sửa hoặc xóa sau insert.
+Permission `inventory.manage` được giữ qua transaction; product lock serialize publication
+và checkout. Confirmation recheck actor, current permission, product version, expected
+source và deadline. Nguồn cũ ACTIVE→RETIRED vẫn thuộc các order đã chốt.
+
+Checkout nonfinite giữ `inventory_unit_id=NULL`, tạo `order_resources` trong cùng UoW;
+finite vẫn bắt buộc unit/product/reservation như T06. Pre-checkout giữ buyer/giá/XTR/TTL/
+active-product checks, kiểm tra exact bound source và gia hạn order. Receipt lưu PAID +
+resource work atomic; không reserve/allocate/release kho hữu hạn cho nonfinite. Source
+ACTIVE/RETIRED được dùng cho late payment của order đã expiry/cancel; không đổi sang nguồn
+mới. Nếu entitlement không còn hợp lệ thì giữ receipt/PAID + `ENTITLEMENT_UNAVAILABLE`.
+
+`fulfillments.resource_id` có FK tới phiên bản và composite FK tới đúng item/resource;
+XOR check tách finite unit và nonfinite resource. SQL helper `fulfillment_entitlement_matches`
+giữ đúng order/item/primary payment/buyer/destination/type/source khi insert và commit.
+Finite allocation vẫn immutable. Worker resource reader chỉ load ciphertext sau entitlement
+authorization; corrupt envelope/format/AAD dừng FAILED và giữ receipt/binding.
+
+Manual waiting notice dùng attempt/fence/retry policy chung; successful notice giữ attempt
+SENT, work AWAITING_MANUAL và order FULFILLING. Staff chỉ đọc/complete với current
+`fulfillment.manage`; migration thêm role ceiling cho OWNER/ADMIN, không tự cấp grant cho
+ADMIN có sẵn. Detail read có audit, không expose evidence/source qua queue.
+
+Manual action seal evidence dưới AAD `manual-evidence:v1` + product/SKU/work/action UUID/key
+version. Confirm khóa access→order→work→action, recheck actor/attempt/state/hold/expiry và
+decrypt evidence; action APPLIED + work SENT + order DELIVERED + audit digest commit cùng
+nhau. DB không cho tự chuyển manual work SENT thiếu action APPLIED đúng attempt. Lost ACK
+sau commit replay idempotent; lỗi audit/commit trước commit rollback toàn bộ. Cancel chỉ
+đóng pending confirmation. Staff attests việc giao bên ngoài; đây không là Telegram receipt
+chứng minh nội dung công việc đã hoàn thành. Failed/uncertain notice vẫn cần reconciliation.
+
+Upgrade 9→10 được kiểm tra từ READY/CLAIMED/SENDING/SENT/RETRY_WAIT/UNCERTAIN/FAILED finite
+work, giữ nguyên old columns/rows/payment/ciphertext. Downgrade chỉ khi chưa có resource,
+manual/grant history; không xóa dữ liệu để downgrade. Bốn predecessor function definitions
+được freeze trong migration để phục hồi chính xác các guard T08/T09. Metadata không drift.

@@ -4,12 +4,13 @@ Shop Telegram bán tài nguyên số có quyền phân phối, thanh toán Stars
 Trạng thái và task đang được thực hiện: [PROJECT](docs/PROJECT.md),
 [implementation plan](docs/plans/shop/implementation-plan.md).
 
-T01–T09 đã có toolchain/runtime, identity/permissions/audit, catalog PostgreSQL với năm loại
+T01–T10 đã có toolchain/runtime, identity/permissions/audit, catalog PostgreSQL với năm loại
 metadata công khai, admin product maintenance và kho key/license mã hóa, import atomic,
 retire/low-stock có phân quyền và order/reservation/expiry cho key/license. Durable invoice
 intent, pre-checkout approval, durable receipt, paid allocation và READY fulfillment intent đã có.
 T09 có worker giao key/license, fenced attempts/recovery và bounded known-failure retry.
-Customer Buy/navigation còn core UI T14; ba delivery types còn T10. Chưa có production webhook.
+T10 thêm nguồn mã hóa theo phiên bản cho file/reusable/manual, document dispatch và staff
+completion có bằng chứng/xác nhận. Customer Buy/navigation còn core UI T14; chưa có production webhook.
 Telegram API trong tests là mock; PostgreSQL integration dùng DB thật.
 
 ## Môi trường development
@@ -75,7 +76,7 @@ Operator có thể chạy một batch tối đa 100 đơn hết hạn và 100 in
 uv run --no-sync telebotshop expire-orders
 ```
 
-Lệnh cần DATABASE_URL/schema head `0009_fulfillment`, không cần BOT_TOKEN/OWNER_ID hoặc
+Lệnh cần DATABASE_URL/schema head `0010_resources`, không cần BOT_TOKEN/OWNER_ID hoặc
 inventory keys; không gửi Telegram. TTL reservation 15 phút theo DB time. Claim SENDING
 quá 30 giây chuyển UNCERTAIN, giữ attempt và không tự gửi lại. Chạy lặp theo lịch vận hành
 khi có checkout; T06 chưa có scheduler/worker hoặc thao tác tự reconcile/resend invoice.
@@ -96,9 +97,9 @@ khi nâng SDK. T08 persist receipt trước khi native polling yield/advance off
 dừng polling và không confirm receipt đó. Re-delivery dùng charge ID để dedup; receipt
 handler không send/decrypt/giao hàng. Chưa có nghiệm thu tải/latency Telegram hoặc production ingress.
 
-## Worker key/license (T09)
+## Worker giao hàng (T09–T10)
 
-Sau migration head `0009_fulfillment`, đặt BOT_TOKEN/OWNER_ID, DATABASE_URL và inventory
+Sau migration head `0010_resources`, đặt BOT_TOKEN/OWNER_ID, DATABASE_URL và inventory
 keys qua environment bảo vệ như polling. Command có thể gửi secret tới buyer; chỉ operator
 chạy với đúng bot/environment và authorization gửi thực tế. Automated tests dùng mock.
 
@@ -157,11 +158,12 @@ Trong private chat:
   Quay lại/Trang chủ/Hủy. `/shop` mở danh mục; `/search <từ khóa>` tìm tên/mô tả/SKU.
 - `/admin` kiểm tra quyền hiện tại. Owner có Quản lý quyền, Cài đặt, Sản phẩm và Kho hàng;
   staff có `catalog.manage` thấy Sản phẩm, `inventory.manage` thấy Kho hàng.
-  Chưa có orders/refunds controls của các task sau.
+  T10 thêm Nguồn giao hàng và Giao hàng thủ công theo quyền hiện tại.
+  History/resend thuộc T11, refund/reconcile thuộc T13.
 - Owner dùng `/grant <Telegram_ID> <ADMIN|SUPPORT> <permission>` hoặc `/revoke` với cùng
   ba tham số, sau đó bấm **Xác nhận** trong 10 phút. Người nhận phải `/start` trước;
   lấy ID của chính mình từ Tài khoản. Mỗi lần chỉ đổi một permission.
-- ADMIN có thể nhận `catalog.manage`, `inventory.manage`, `orders.read`, `payments.refund`,
+- ADMIN có thể nhận `catalog.manage`, `inventory.manage`, `fulfillment.manage`, `orders.read`, `payments.refund`,
   `tickets.manage`; SUPPORT chỉ `tickets.manage` và vẫn cần assignment của ticket thật.
   Đổi ADMIN/SUPPORT phải thu hồi hết grants cũ trước. Owner/settings permissions không delegate.
 - `/setsupport <username>` (có thể có `@`) hoặc `/setsupport -` để xóa; đều cần xác nhận.
@@ -282,6 +284,48 @@ Pending actions hết hạn bị chặn; chưa có retention job trước khi Ow
 
 Dependency theo ADR-0003: [cryptography 50.0.2](https://pypi.org/project/cryptography/50.0.2/),
 pin trong manifest/lock; crypto contract theo [AESGCM documentation](https://cryptography.io/en/stable/hazmat/primitives/aead/#cryptography.hazmat.primitives.ciphers.aead.AESGCM).
+
+## File, tài nguyên dùng lại và công việc thủ công (T10)
+
+Sau khi tạo public metadata của sản phẩm, staff có `inventory.manage` mở **Nguồn giao hàng**
+trong `/admin` hoặc `/resources`. Đăng nguồn bằng `/resource SKU`, rồi bấm xác nhận trong
+10 phút. Nguồn pending không được mua; xác nhận kiểm tra lại actor, quyền, product version
+và phiên bản nguồn trước đó. Hai lần cập nhật đồng thời chỉ áp dụng một phiên bản.
+
+- `DIGITAL_FILE`: gửi document cho bot kèm caption `/resource DEMO-FILE`. Tên file/MIME
+  phải khớp public metadata. Chỉ đăng ký `file_id` từ document; không download hoặc nhận URL.
+- `REUSABLE_RESOURCE` có format `DOCUMENT`: gửi document kèm caption `/resource DEMO-DOC`.
+  Với format `TEXT`, gửi `/resource DEMO-TEXT`, xuống dòng rồi nội dung tối đa 4096 UTF-8 bytes.
+- `MANUAL_FULFILLMENT`: gửi `/resource DEMO-MANUAL`, xuống dòng rồi hướng dẫn riêng cho staff
+  tối đa 2048 UTF-8 bytes. Customer notice lấy từ public metadata, tối đa 500 ký tự.
+
+Các tên DEMO ở trên chỉ minh họa cú pháp; bot không tự seed sản phẩm hoặc nguồn thật.
+Nguồn được mã hóa bằng keyring hiện có, giữ phiên bản cũ. Mỗi order item chốt một resource
+version khi tạo đơn; sửa nguồn/catalog sau đó không đổi entitlement đã chốt. Ba loại này
+không reserve/allocate finite units hoặc hiển thị số stock giả. Pre-checkout vẫn kiểm tra
+buyer/XTR/giá/TTL/active product; receipt và paid work được commit atomic.
+
+Worker gửi file/reusable document bằng `sendDocument`, text bằng `sendMessage`, tới private
+buyer đã lưu. Wrong type/format/AAD/envelope fail closed; không fallback document sang text.
+Manual worker chỉ gửi customer notice, không đưa staff instructions vào sender. Notice
+được Telegram xác nhận mới chuyển work `AWAITING_MANUAL`; order vẫn `FULFILLING`.
+Known rejection/retry và uncertain dùng cùng policy T09; failed/uncertain cần attention và
+reconciliation ở task tương ứng, không tự hoàn tất manual work.
+
+Owner có quyền `fulfillment.manage`; ADMIN cần Owner cấp riêng quyền này qua flow hiện có.
+`orders.read` và `inventory.manage` không đủ để đọc hướng dẫn riêng/hoàn tất đơn thủ công.
+Staff có quyền dùng `/manual` xem queue (5/trang), `/manual WORK_ID` xem đúng buyer/hướng dẫn.
+Sau khi thực sự xử lý xong, gửi `/manual_complete WORK_ID`, xuống dòng rồi bằng chứng hoặc
+tham chiếu xử lý tối đa 500 UTF-8 bytes, và bấm **Xác nhận đã giao** trong 10 phút.
+Bằng chứng được mã hóa, audit chỉ giữ digest; staff đang xác nhận việc đã xử lý bên ngoài,
+bot không tự xác minh tính đúng đắn của tham chiếu đó. Xác nhận kiểm tra quyền hiện tại,
+actor/attempt, expiry, paid state và hold; completion + audit + order DELIVERED commit cùng nhau.
+Replay không hoàn tất lần hai. Preview/log/audit không echo nội dung nguồn hoặc bằng chứng.
+
+**Owner setup cho T10 local: không cần thêm key/provider/server.** Tests dùng fixture giả,
+Telegram mock và PostgreSQL test cô lập. Để nghiệm thu Telegram T14 cần test bot/account,
+secrets trong môi trường bảo mật và tài nguyên có quyền phân phối; không gửi secrets trong chat.
+Public Buy, history/resend, refund/reconcile và production deployment vẫn theo task sở hữu.
 
 ## PostgreSQL integration tests
 

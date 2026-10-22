@@ -22,7 +22,14 @@ async def test_runtime_pre_checkout_uses_service_with_durable_receipt_intake(mon
     try:
         check = AsyncMock(return_value=True)
         dispatcher = create_dispatcher(
-            Mock(), Mock(), Mock(), Mock(), Mock(check=check), AsyncMock()
+            Mock(),
+            Mock(),
+            Mock(),
+            Mock(),
+            Mock(check=check),
+            AsyncMock(),
+            resources=AsyncMock(),
+            manual=AsyncMock(),
         )
         await dispatcher.feed_update(recorder.bot, pre_checkout_update())
         assert len(recorder.calls) == 1
@@ -143,7 +150,16 @@ async def test_validation_timeout_leaves_budget_for_safe_answer(monkeypatch):
 @pytest.mark.asyncio
 async def test_native_concurrent_dispatch_answers_while_another_update_waits(monkeypatch):
     recorder = TelegramRecorder(monkeypatch)
-    dispatcher = create_dispatcher(Mock(), Mock(), Mock(), Mock(), AsyncMock(), AsyncMock())
+    dispatcher = create_dispatcher(
+        Mock(),
+        Mock(),
+        Mock(),
+        Mock(),
+        AsyncMock(),
+        AsyncMock(),
+        resources=AsyncMock(),
+        manual=AsyncMock(),
+    )
     started, release, answered = asyncio.Event(), asyncio.Event(), asyncio.Event()
 
     @dispatcher.message(Command("slow"))

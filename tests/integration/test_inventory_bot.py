@@ -16,6 +16,8 @@ from telebotshop.domain.models.identity import CustomerIdentity, Role
 from telebotshop.infrastructure.database.uow import unit_of_work
 from telebotshop.infrastructure.telegram import guard as guard_module
 from tests.inventory import inventory_service, setup_inventory
+from tests.manual import manual_service
+from tests.resources import resource_service
 from tests.telegram import TelegramRecorder, callback_update, document_update, message_update
 
 
@@ -54,6 +56,8 @@ async def test_upload_confirm_stock_pages_retire_and_low_stock_use_real_db_outsi
         inventory,
         PreCheckoutService(factory),
         PaymentService(factory),
+        resources=resource_service(migrated_database),
+        manual=manual_service(migrated_database),
     )
 
     async def feed(update):
@@ -141,6 +145,8 @@ async def test_revocation_during_download_is_rechecked_before_persisting_import(
         inventory,
         PreCheckoutService(factory),
         PaymentService(factory),
+        resources=resource_service(migrated_database),
+        manual=manual_service(migrated_database),
     )
     await dispatcher.feed_update(telegram.bot, document_update("/import DEMO-1", actor=101))
     assert "không có quyền" in telegram.calls[-1].text

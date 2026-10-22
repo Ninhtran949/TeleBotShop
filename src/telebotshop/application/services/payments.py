@@ -1,6 +1,7 @@
 from uuid import uuid4
 
 from telebotshop.application.ports.uow import UnitOfWorkFactory
+from telebotshop.domain.models.inventory import FINITE_TYPES
 from telebotshop.domain.models.orders import OrderAttention, OrderStatus
 from telebotshop.domain.models.payments import (
     CommittedWork,
@@ -73,11 +74,19 @@ class PaymentService:
                 return PaymentResult(payment.id, PaymentOutcome.REQUIRES_REVIEW, payment.order_id)
 
             assert order is not None and profile is not None
-            reserved = await work.orders.has_reservation(order, for_update=True)
-            attention = None if reserved else OrderAttention.RESERVATION_LOST
+            resource = None
+            if order.product_type in FINITE_TYPES:
+                available = await work.orders.has_reservation(order, for_update=True)
+                missing = OrderAttention.RESERVATION_LOST
+            else:
+                resource = await work.resources.for_order(order)
+                available = resource is not None
+                missing = OrderAttention.ENTITLEMENT_UNAVAILABLE
+            attention = None if available else missing
             await work.payments.mark_paid(order, attention)
-            if reserved:
-                await work.payments.allocate(order)
+            if available:
+                if order.product_type in FINITE_TYPES:
+                    await work.payments.allocate(order)
                 await work.payments.save_work(
                     CommittedWork(
                         uuid4(),
@@ -88,8 +97,9 @@ class PaymentService:
                         order.buyer_id,
                         profile.telegram_id,
                         order.product_type,
+                        None if resource is None else resource.id,
                     )
                 )
-            await work.orders.audit(order, "payment.matched" if reserved else "payment.attention")
+            await work.orders.audit(order, "payment.matched" if available else "payment.attention")
             await work.commit()
             return PaymentResult(payment.id, PaymentOutcome.MATCHED, order.id, attention)

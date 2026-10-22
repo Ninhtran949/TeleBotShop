@@ -11,6 +11,7 @@ class Permission(StrEnum):
     MANAGE_SETTINGS = "settings.manage"
     MANAGE_CATALOG = "catalog.manage"
     MANAGE_INVENTORY = "inventory.manage"
+    MANAGE_FULFILLMENT = "fulfillment.manage"
     VIEW_ORDERS = "orders.read"
     REFUND = "payments.refund"
     MANAGE_TICKETS = "tickets.manage"
@@ -22,6 +23,7 @@ ROLE_PERMISSIONS = {
         {
             Permission.MANAGE_CATALOG,
             Permission.MANAGE_INVENTORY,
+            Permission.MANAGE_FULFILLMENT,
             Permission.VIEW_ORDERS,
             Permission.REFUND,
             Permission.MANAGE_TICKETS,

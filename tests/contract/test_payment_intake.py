@@ -13,7 +13,16 @@ from tests.telegram import TelegramRecorder, payment_update
 
 
 def dispatcher_for(receiver):
-    return create_dispatcher(Mock(), Mock(), Mock(), Mock(), AsyncMock(), Mock(record=receiver))
+    return create_dispatcher(
+        Mock(),
+        Mock(),
+        Mock(),
+        Mock(),
+        AsyncMock(),
+        Mock(record=receiver),
+        resources=AsyncMock(),
+        manual=AsyncMock(),
+    )
 
 
 @pytest.mark.asyncio

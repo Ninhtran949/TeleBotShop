@@ -3,8 +3,13 @@ from unittest.mock import AsyncMock
 
 import pytest
 from aiogram import Bot
-from aiogram.methods import AnswerCallbackQuery, AnswerPreCheckoutQuery, TelegramMethod
-from aiogram.types import Chat, Message, Update, User
+from aiogram.methods import (
+    AnswerCallbackQuery,
+    AnswerPreCheckoutQuery,
+    SendDocument,
+    TelegramMethod,
+)
+from aiogram.types import Chat, Document, Message, Update, User
 
 FAKE_TOKEN = "123456:FAKE_token_only_for_offline_contract_tests"
 
@@ -27,6 +32,9 @@ class TelegramRecorder:
             chat=Chat(id=101, type="private"),
             from_user=User(id=bot.id, is_bot=True, first_name="Bot"),
             text="Test reply",
+            document=Document(file_id=method.document, file_unique_id="fake_sent_document")
+            if isinstance(method, SendDocument)
+            else None,
         ).as_(bot)
 
 

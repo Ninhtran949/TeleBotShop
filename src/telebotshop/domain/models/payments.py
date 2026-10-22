@@ -120,7 +120,8 @@ class CommittedWork:
     order_id: UUID
     order_item_id: UUID
     payment_id: UUID
-    inventory_unit_id: UUID
+    inventory_unit_id: UUID | None
     buyer_id: UUID
     destination_telegram_id: int
     product_type: ProductType
+    resource_id: UUID | None = None

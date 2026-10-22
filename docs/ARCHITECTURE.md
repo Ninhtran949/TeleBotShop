@@ -2,7 +2,7 @@
 
 ## Trạng thái và lựa chọn
 
-Đây là baseline thiết kế được SE/SA chọn theo ủy quyền của Owner. T01–T09 đã triển khai toolchain/runtime, HTTP health, PostgreSQL/UoW/migrations, identity/permission/audit, public catalog/admin, encrypted inventory, finite orders/invoice intents và serialized pre-checkout approval, durable receipt, paid allocation và READY intent. Development polling dùng checker thật và ghi receipt trước offset; T09 có finite delivery worker; public Buy/production webhook chưa có. Yêu cầu nghiệp vụ gốc ở [`task.md`](../task.md); lý do chọn kiến trúc ở [ADR-0001](adr/0001-modular-monolith.md). Thiết kế chỉ dựng package/file khi một slice cần dùng, không tạo toàn bộ cây trống.
+Đây là baseline thiết kế được SE/SA chọn theo ủy quyền của Owner. T01–T10 đã triển khai toolchain/runtime, HTTP health, PostgreSQL/UoW/migrations, identity/permission/audit, public catalog/admin, encrypted inventory, orders/invoice intents và serialized pre-checkout approval, durable receipt, paid allocation/resource entitlement và READY intent. Development polling dùng checker thật và ghi receipt trước offset; worker dispatch đủ năm loại, manual có staff completion; public Buy/production webhook chưa có. Yêu cầu nghiệp vụ gốc ở [`task.md`](../task.md); lý do chọn kiến trúc ở [ADR-0001](adr/0001-modular-monolith.md). Thiết kế chỉ dựng package/file khi một slice cần dùng, không tạo toàn bộ cây trống.
 
 Chọn **modular monolith**, một codebase/image, PostgreSQL là nguồn dữ liệu bền vững. Production dự kiến có hai process từ cùng image: HTTP ingress và fulfillment worker. Local polling chỉ là adapter development thay thế webhook, không chạy cùng webhook cho cùng bot.
 
@@ -104,8 +104,8 @@ hold/attention. Prepare commit SENDING rồi sender mới gọi Telegram ngoài 
 khóa order→work và giữ late result observations. FAILED vẫn giữ payment/allocation.
 `workers/fulfillment.py` chỉ loop/recover/idle wait qua service, không SDK/SQL/crypto; bootstrap
 wire WorkerSettings/policy/cipher/repo/sender, đóng Bot/engine khi exit. `infrastructure/delivery/finite.py`
-gửi typed UNIQUE_KEY/LICENSE qua port, mapping known rejection khác uncertain; chưa dispatch
-file/reusable/manual hoặc expose decrypt API. Current hold là FD-06 pre-send boundary, refund
+gửi typed payload qua port, mapping known rejection khác uncertain; T10 mở rộng dispatch
+file/reusable/manual. Current hold là FD-06 pre-send boundary, refund
 operations ở T13; public Buy/core navigation ở T14, không suy whole-shop success từ worker.
 
 Domain identity/access/admin DTO là dataclass/enum thuần Python; application services sở
@@ -129,6 +129,22 @@ key registration guard và PostgreSQL constraints giữ identity/dedup; không e
 use case trước entitlement. Admin router chỉ validate transport/render, download bounded
 memory qua Telegram SDK ngoài transaction rồi gọi use case kiểm tra lại quyền. Bootstrap
 wire InventorySettings/cipher/service/router; stock DTOs chỉ có IDs/status/counts.
+
+T10 ResourceService có port/repository riêng cho encrypted immutable resource versions,
+confirmed publication và order-resource bindings. Checkout khóa product để chốt source;
+PreCheckoutService/PaymentService kiểm tra binding cho nonfinite, giữ finite reservation/
+allocation path. CommittedWork mở explicit resource ID; DB XOR/FKs tách unit với reusable
+source. Cùng InventoryCipher adapter phục vụ `inventory:v1`, `resource:v1` và
+`manual-evidence:v1` contexts; domain/application không kéo thư viện mã hóa vào.
+
+FulfillmentService kiểm tra source type/metadata sau authorized open; sender nhận typed
+file/text/document hoặc ManualNotice, không nhận staff instructions. Manual notice SENT
+đưa work AWAITING_MANUAL, order còn FULFILLING. ManualFulfillmentService sở hữu protected
+queue/detail/confirmation/completion với `fulfillment.manage`, evidence AAD riêng và audit
+digest. Staff completion khóa access→order→work→action, atomic cùng order DELIVERED;
+hold thắng trước completion chặn decrypt/complete, không tự retry uncertain notice.
+Admin resource/manual routers chỉ parse/render và gọi use cases; bootstrap wire mọi
+concrete service/cipher/repo/router, network nằm ngoài UoW. Lịch sử/resend còn T11.
 
 ## Ma trận import bắt buộc
 

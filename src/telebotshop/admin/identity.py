@@ -15,6 +15,7 @@ PERMISSION_LABELS = {
     Permission.MANAGE_SETTINGS: "Cài đặt",
     Permission.MANAGE_CATALOG: "Quản lý sản phẩm/giá",
     Permission.MANAGE_INVENTORY: "Quản lý kho",
+    Permission.MANAGE_FULFILLMENT: "Giao hàng thủ công",
     Permission.VIEW_ORDERS: "Tra cứu đơn hàng",
     Permission.REFUND: "Hoàn tiền",
     Permission.MANAGE_TICKETS: "Xử lý hỗ trợ",
@@ -30,6 +31,9 @@ def admin_menu(actor: Access) -> tuple[str, InlineKeyboardMarkup]:
         rows.append([InlineKeyboardButton(text="Sản phẩm", callback_data="pc:list:0")])
     if Permission.MANAGE_INVENTORY in actor.permissions:
         rows.append([InlineKeyboardButton(text="Kho hàng", callback_data="iv:home")])
+        rows.append([InlineKeyboardButton(text="Nguồn giao hàng", callback_data="rs:home")])
+    if Permission.MANAGE_FULFILLMENT in actor.permissions:
+        rows.append([InlineKeyboardButton(text="Giao hàng thủ công", callback_data="mf:queue:0")])
     if Permission.MANAGE_ACCESS in actor.permissions:
         rows.append([InlineKeyboardButton(text="Quản lý quyền", callback_data="adm:access")])
     if Permission.MANAGE_SETTINGS in actor.permissions:

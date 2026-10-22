@@ -121,4 +121,7 @@ class SqlPaymentRepository(PaymentRepository):
             raise InvalidAction("Payment reservation changed")
 
     async def save_work(self, work: CommittedWork) -> None:
-        await self.session.execute(insert(fulfillments).values(**asdict(work)))
+        values = asdict(work)
+        if work.resource_id is None:
+            values.pop("resource_id")
+        await self.session.execute(insert(fulfillments).values(**values))

@@ -4,6 +4,7 @@ from telebotshop.application.ports.pre_checkout import PRE_CHECKOUT_DB_BUDGET
 from telebotshop.application.ports.uow import UnitOfWorkFactory
 from telebotshop.domain.errors import InvalidAction
 from telebotshop.domain.models.catalog import SaleState
+from telebotshop.domain.models.inventory import FINITE_TYPES
 from telebotshop.domain.models.orders import RESERVATION_TTL, InvoiceStatus, OrderStatus
 from telebotshop.domain.models.pre_checkout import PreCheckout
 
@@ -36,7 +37,12 @@ class PreCheckoutService:
             product = await work.catalog.product(order.product_id, for_update=True)
             if product is None or product.sale_state != SaleState.ACTIVE:
                 return False
-            if not await work.orders.has_reservation(order, for_update=True):
+            available = (
+                await work.orders.has_reservation(order, for_update=True)
+                if order.product_type in FINITE_TYPES
+                else await work.resources.for_order(order) is not None
+            )
+            if not available:
                 return False
             now = await work.orders.now()
             if order.expires_at <= now:

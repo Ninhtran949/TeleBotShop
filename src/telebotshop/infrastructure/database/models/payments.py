@@ -95,7 +95,12 @@ fulfillments = sa.Table(
         "inventory_unit_id",
         sa.Uuid,
         sa.ForeignKey("inventory_units.id", name="fk_fulfillments_unit"),
-        nullable=False,
+        nullable=True,
+    ),
+    sa.Column(
+        "resource_id",
+        sa.Uuid,
+        sa.ForeignKey("resource_versions.id", name="fk_fulfillments_resource"),
     ),
     sa.Column(
         "buyer_id", sa.Uuid, sa.ForeignKey("users.id", name="fk_fulfillments_buyer"), nullable=False
@@ -121,6 +126,11 @@ fulfillments = sa.Table(
     ),
     sa.UniqueConstraint("order_item_id", name="uq_fulfillments_item"),
     sa.ForeignKeyConstraint(
+        ["order_item_id", "resource_id"],
+        ["order_resources.order_item_id", "order_resources.resource_id"],
+        name="fk_fulfillments_item_resource",
+    ),
+    sa.ForeignKeyConstraint(
         ["order_item_id", "inventory_unit_id"],
         ["order_items.id", "order_items.inventory_unit_id"],
         name="fk_fulfillments_item_unit",
@@ -132,7 +142,8 @@ fulfillments = sa.Table(
         use_alter=True,
     ),
     sa.CheckConstraint(
-        "state IN ('READY', 'RETRY_WAIT', 'CLAIMED', 'SENDING', 'SENT', 'UNCERTAIN', 'FAILED')",
+        "state IN ('READY', 'RETRY_WAIT', 'CLAIMED', 'SENDING', 'SENT', "
+        "'UNCERTAIN', 'FAILED', 'AWAITING_MANUAL')",
         name="ck_fulfillments_state",
     ),
     sa.CheckConstraint("send_count BETWEEN 0 AND 5", name="ck_fulfillments_send_count"),
@@ -146,7 +157,13 @@ fulfillments = sa.Table(
         "OR (state NOT IN ('FAILED', 'UNCERTAIN') AND attention_code IS NULL)",
         name="ck_fulfillments_attention",
     ),
-    sa.CheckConstraint("product_type IN ('UNIQUE_KEY', 'LICENSE')", name="ck_fulfillments_type"),
+    sa.CheckConstraint(
+        "(product_type IN ('UNIQUE_KEY', 'LICENSE') AND inventory_unit_id IS NOT NULL "
+        "AND resource_id IS NULL) OR "
+        "(product_type IN ('DIGITAL_FILE', 'REUSABLE_RESOURCE', 'MANUAL_FULFILLMENT') "
+        "AND inventory_unit_id IS NULL AND resource_id IS NOT NULL)",
+        name="ck_fulfillments_type",
+    ),
     sa.CheckConstraint("destination_telegram_id > 0", name="ck_fulfillments_destination"),
 )
 sa.Index(

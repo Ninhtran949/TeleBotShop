@@ -1,6 +1,6 @@
 # Spec: orders-payments
 
-Status: T06–T08 finite order/invoice, serialized approval, durable receipt/paid allocation/READY intent đã triển khai. Polling có durable intake/checker thật; T09 có finite worker; public Buy/core UI còn T14, refund còn T13. Chưa nghiệm thu toàn OP hoặc live Stars. Nguồn: `task.md` §§3,5,8,11. Depends on: [identity-access](identity-access.md), [catalog-inventory](catalog-inventory.md). Quyết định an toàn: [ADR-0002](../../adr/0002-payment-and-fulfillment-safety.md).
+Status: T06–T08 order/invoice, serialized approval, durable receipt/paid allocation/READY intent đã triển khai; T09 có worker, T10 mở nonfinite pinned resource entitlements. Polling có durable intake/checker thật; public Buy/core UI còn T14, refund còn T13. Chưa nghiệm thu toàn OP hoặc live Stars. Nguồn: `task.md` §§3,5,8,11. Depends on: [identity-access](identity-access.md), [catalog-inventory](catalog-inventory.md). Quyết định an toàn: [ADR-0002](../../adr/0002-payment-and-fulfillment-safety.md).
 
 ## Order và invoice
 
@@ -10,7 +10,7 @@ Baseline checkout một active product, quantity 1 và một order item; không 
 
 Reservation TTL 15 phút theo DB time; pre-checkout approval gia hạn tới ít nhất 15 phút từ approval. Khách cancel/expire trước payment có thể release qua guarded transaction. Giá catalog đổi sau invoice không đổi snapshot; reprice phải tạo order/action mới, không tự tính lại số tiền callback.
 
-T06 thực hiện UNIQUE_KEY/LICENSE, quantity 1; loại khác fail-closed tới T10. `0006_orders`
+T06 thực hiện UNIQUE_KEY/LICENSE, quantity 1; T10 mở ba loại nonfinite. `0006_orders`
 ghi trực tiếp AWAITING_PAYMENT trong atomic create, chưa cần persisted PENDING state.
 Invoice READY→SENDING có durable attempt trước network; SENT không mark PAID, known
 REJECTED close unpaid order, UNCERTAIN không auto-resend. `expire-orders` xử lý tối đa
@@ -38,6 +38,15 @@ approval history; replay của order expired/cancelled không approve lại.
 Adapter có 4s DB/validation + 3s API answer budget theo
 [answerPreCheckoutQuery](https://core.telegram.org/bots/api#answerprecheckoutquery), không
 gọi network trong transaction; timeout/lost answer không reset binding hoặc blind retry.
+
+T10 nonfinite create khóa buyer→product, yêu cầu ACTIVE resource đúng metadata và ghi
+order_resources cùng order/item/invoice/audit. Không có finite unit, reservation hoặc
+allocation giả. Pre-checkout kiểm tra immutable source binding thay exact unit, giữ
+buyer/XTR/giá/TTL/current active product và query-id idempotency; gia hạn order TTL cùng
+approval/audit. Cancel/expiry giữ source binding để receipt đến muộn còn được đối chiếu.
+Payment hợp lệ lưu PAID + primary receipt + bound resource work atomic; nguồn ACTIVE/RETIRED
+giữ entitlement cũ, không đổi sang nguồn mới khi catalog/resource được sửa. Nếu source không
+còn hợp lệ thì giữ PAID + ENTITLEMENT_UNAVAILABLE để reconcile, không làm mất receipt.
 Query ID cap 256 ký tự là input policy dự án, không phải giới hạn Telegram công bố.
 T08 nối checker thật sau khi đăng ký durable receipt; Buy/core UI còn T14.
 

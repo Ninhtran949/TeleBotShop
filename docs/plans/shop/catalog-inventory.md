@@ -1,6 +1,6 @@
 # Spec: catalog-inventory
 
-Status: T04 public catalog/admin, T05 encrypted finite inventory, T06 reservation/expiry và T07 approval extension đã triển khai; public checkout/payment/fulfillment và nonfinite secret payload tiếp tục theo T08–T10. Chưa nghiệm thu toàn CI-01..06 hoặc live Telegram. Nguồn: `task.md` §§3,4,8,10. Depends on: [identity-access](identity-access.md).
+Status: T04 public catalog/admin, T05 encrypted finite inventory, T06/T07 reservation/approval, T08/T09 paid allocation/worker và T10 encrypted nonfinite source/dispatch/manual completion đã triển khai local. Public Buy/core UI còn T14; chưa nghiệm thu toàn CI-01..06 hoặc live Telegram. Nguồn: `task.md` §§3,4,8,10. Depends on: [identity-access](identity-access.md).
 
 ## Catalog và product contracts
 
@@ -22,7 +22,11 @@ T04 public schemas riêng: UNIQUE_KEY `{}`; LICENSE `instructions`; DIGITAL_FILE
 `file_name`/`mime_type`; REUSABLE_RESOURCE `format=TEXT|DOCUMENT`; MANUAL_FULFILLMENT
 `customer_notice`. Đây là metadata công khai, không phải delivery payload trong bảng trên.
 T05 có typed UNIQUE_KEY/LICENSE secret payload/validation/encryption riêng trong inventory,
-không đưa key/file_id/content vào products. Nonfinite secret payload thuộc T10.
+không đưa key/file_id/content vào products. T10 lưu nonfinite secret payload trong
+resource_versions riêng, mã hóa và immutable theo phiên bản; order_resources giữ entitlement
+snapshot. Protected `/resource SKU` đăng ký document hoặc nội dung đúng loại/metadata,
+confirmed publication không đổi nguồn của order cũ. Chưa published/metadata không khớp thì
+OrderService không nhận đơn; nonfinite không nhận inventory units hoặc fake stock count.
 Photo reference chỉ dành cho ảnh minh họa công khai.
 
 Contract hiện tại: root/subcategory hai cấp, immutable case-sensitive code/SKU/type;
@@ -30,10 +34,10 @@ new product hidden, Owner-delegated `catalog.manage` + confirmation/audit cho wr
 CatalogService cung cấp public categories/products/product và protected admin/prepare/
 confirm/cancel use cases. Pagination 5 items/page (0–9999), search literal 1–80 ký tự;
 private router giữ actor-bound bounded navigation parameters, không cache business data.
-Stock/low-stock chỉ đọc qua protected InventoryService; OrderService là internal T06 use case,
+Stock/low-stock chỉ đọc qua protected InventoryService; OrderService là internal use case,
 chưa có order transport API hoặc nút mua.
 Chi tiết command/schema/limits tại [README](../../../README.md), [DATABASE](../../DATABASE.md)
-và [SECURITY](../../SECURITY.md); CI-01 finite stock/order gating có ở T06, nonfinite còn T10.
+và [SECURITY](../../SECURITY.md); CI-01 finite stock/order gating có ở T06, nonfinite ở T10.
 
 ## Inventory và reservation
 
@@ -78,5 +82,6 @@ Không có decrypt/export use case trước authorized entitlement; old-version/
 Verification T04–T06: unit metadata/key/license/parser/AEAD/settings/UX; PostgreSQL thật cho
 import/retire races, constraints và rollback; mocked Telegram dispatcher với DB thật, download/
 send ngoài transaction, finite last-key/double-click/expiry/cancel races và snapshot rollback.
-Allocation/payment-vs-stock và entitlement decryption còn T08/T09; tests hiện tại không
-thay thế các gates đó. Evidence tại implementation plan.
+Allocation/payment-vs-stock và entitlement decryption có evidence T08/T09; T10 bổ sung
+resource metadata/format/AAD/version và source snapshot tests. Đây chưa là Telegram live
+acceptance. Evidence tại implementation plan.

@@ -21,6 +21,7 @@ class OrderStatus(StrEnum):
 
 class OrderAttention(StrEnum):
     RESERVATION_LOST = "RESERVATION_LOST"
+    ENTITLEMENT_UNAVAILABLE = "ENTITLEMENT_UNAVAILABLE"
 
 
 class CloseReason(StrEnum):
@@ -44,7 +45,7 @@ class Order:
     buyer_id: UUID
     item_id: UUID
     product_id: UUID
-    unit_id: UUID
+    unit_id: UUID | None
     sku: str
     product_type: ProductType
     title: str

@@ -22,7 +22,8 @@ orders = sa.Table(
         name="ck_orders_status",
     ),
     sa.CheckConstraint(
-        "attention_reason IS NULL OR (status = 'PAID' AND attention_reason = 'RESERVATION_LOST')",
+        "attention_reason IS NULL OR (status = 'PAID' AND attention_reason IN "
+        "('RESERVATION_LOST', 'ENTITLEMENT_UNAVAILABLE'))",
         name="ck_orders_attention",
     ),
     sa.CheckConstraint("expires_at >= created_at + interval '15 minutes'", name="ck_orders_ttl"),
@@ -56,7 +57,7 @@ order_items = sa.Table(
         sa.ForeignKey("products.id", name="fk_order_items_product"),
         nullable=False,
     ),
-    sa.Column("inventory_unit_id", sa.Uuid, nullable=False),
+    sa.Column("inventory_unit_id", sa.Uuid),
     sa.Column("sku", sa.String(32), nullable=False),
     sa.Column("product_type", sa.String(32), nullable=False),
     sa.Column("title", sa.String(80), nullable=False),
@@ -73,7 +74,12 @@ order_items = sa.Table(
     ),
     sa.CheckConstraint("quantity = 1", name="ck_order_items_quantity"),
     sa.CheckConstraint("currency = 'XTR' AND price_stars > 0", name="ck_order_items_price"),
-    sa.CheckConstraint("product_type IN ('UNIQUE_KEY', 'LICENSE')", name="ck_order_items_type"),
+    sa.CheckConstraint(
+        "(product_type IN ('UNIQUE_KEY', 'LICENSE') AND inventory_unit_id IS NOT NULL) OR "
+        "(product_type IN ('DIGITAL_FILE', 'REUSABLE_RESOURCE', 'MANUAL_FULFILLMENT') "
+        "AND inventory_unit_id IS NULL)",
+        name="ck_order_items_type",
+    ),
     sa.CheckConstraint("length(title) BETWEEN 1 AND 80", name="ck_order_items_title"),
 )
 invoice_intents = sa.Table(

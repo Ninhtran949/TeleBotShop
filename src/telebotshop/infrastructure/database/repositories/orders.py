@@ -229,6 +229,8 @@ class SqlOrderRepository(OrderRepository):
                 expires_at=expires_at,
             )
         )
+        if order.unit_id is None:
+            return True
         return (
             await self.session.scalar(
                 update(inventory_units)

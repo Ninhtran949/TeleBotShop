@@ -17,11 +17,12 @@ Mục tiêu từ [`task.md`](../task.md): shop Telegram bán tài nguyên số �
 | T07: pre-checkout validation/serialized approval và bounded answer | Đã triển khai và kiểm chứng local: head `0007_pre_checkout`, one immutable approval/order/query, atomic TTL extension/audit, exact reservation/current product/owner/price checks, deadline/uncertainty/races. T08 nối checker thật cùng receipt intake; không có live payment validation. |
 | T08: durable receipt/paid allocation/READY fulfillment intent | Đã triển khai local: head `0008_payments`, charge dedup/conflicts/extra review, PAID + attention khi mất reservation; atomic permanent allocation/work, commit-before-polling-offset, không delivery. |
 | T09: finite worker và recovery | Đã triển khai local: head `0009_fulfillment`, fenced attempts, authorized decrypt, separate claim/prepare/complete transactions, known-rate bounded retry, uncertain recovery/observations và durable attention/alerts; Telegram mock. |
+| T10: file/reusable/manual fulfillment | Đã triển khai local: head `0010_resources`, confirmed encrypted resource versions, pinned order entitlement, typed document/text/manual notice và current-permission staff completion/evidence/audit; PostgreSQL thật, Telegram mock. |
 | Public Buy, production webhook, CI, production image/deployment | Chưa triển khai; các phần tương ứng trong cây kiến trúc là cấu trúc đích. |
 | BotFather/test bot, live credentials, backup/restore | Chưa cấu hình hoặc kiểm chứng; local PostgreSQL dùng credentials giả tách biệt. |
-| Git | Branch `dev`, HEAD `19e7b53` (T08 có sẵn khi bắt đầu edits T09), initial empty index giữ nguyên. T09 working tree; agent không stage/commit/push/discard work. |
+| Git | Branch `dev`, HEAD `6582dd0` (T09). T09 còn staged ở lượt kiểm tra đầu T10, đã được commit bên ngoài agent trước snapshot/edits T10; snapshot và cuối task đều empty index. T10 working tree; agent không stage/commit/push/discard work. |
 
-Trạng thái và bằng chứng của từng slice nằm trong [implementation plan](plans/shop/implementation-plan.md). T01–T09 hoàn tất; **T10** là task tiếp theo, còn pending và cần được giao riêng. Không tự chạy toàn roadmap khi chỉ được giao một task.
+Trạng thái và bằng chứng của từng slice nằm trong [implementation plan](plans/shop/implementation-plan.md). T01–T10 hoàn tất; **T11** là task tiếp theo, còn pending và cần được giao riêng. Không tự chạy toàn roadmap khi chỉ được giao một task.
 
 ## Đọc theo nhiệm vụ
 
@@ -80,7 +81,7 @@ python -B -m unittest discover -s tests -p test_harness.py -v
 
 HTTP không cần bot secrets. Polling cần BOT_TOKEN/OWNER_ID và inventory key settings trong environment bảo vệ, chỉ
 development/test, từ chối existing webhook; hướng dẫn trong README. Không chạy command
-polling thật từ các task code/test T03–T09. Worker gửi key/license nên chỉ operator chạy khi có authorization gửi thực tế; tests mock. `expire-orders` chạy một batch DB-only,
+polling thật từ các task code/test T03–T10. Worker gửi entitlement/customer notice nên chỉ operator chạy khi có authorization gửi thực tế; tests mock. `expire-orders` chạy một batch DB-only,
 không Bot/keys; hướng dẫn và giới hạn tại README/DATABASE.
 
 T09 verification: **402 unit/contract/architecture**, **238 PostgreSQL integration**,
@@ -92,9 +93,23 @@ typed key/license, bounded retry-after, late observations, commit failures/lost 
 immutable history và T08 preservation/downgrade/metadata. Bốn mutation probes token/hold/recovery/
 late-result bị bắt; source restored trước final C/D. Runtime/lifecycle và Telegram API mocked;
 PostgreSQL thật, không suy live message hoặc production SLO từ local tests.
-Chưa public Buy/core UI (T14), file/reusable/manual (T10), history/resend (T11), refund/reconcile
+Chưa public Buy/core UI (T14), history/resend (T11), refund/reconcile
 (T13), production webhook/deploy/restore hoặc live Telegram validation. Alerts hiện durable
 attention/audit/log; staff notification routing T14. Chi tiết ở [SECURITY](SECURITY.md) và ledger.
+
+T10 verification: **445 unit/contract/architecture**, **301 PostgreSQL integration**,
+**6 harness** pass. Lock/sync/lint/format/architecture/build, fresh isolated wheel runtime
+(96 matching source modules, poisoned settings/no network/no pytest, native AES-GCM) và
+native locked audit 49 packages pass. Independent read-only review không có required finding;
+bốn mutation probes có green control, không sửa source chính, đều bị focused tests bắt đúng.
+Schema 0010 giữ T09 paid/attempt history ở bảy states; source publication/checkout và manual
+hold/completion dùng hai physical connections; data/attempt/audit rollback/lost-ACK và typed
+message/document contracts có tests. Đây là local/mock evidence, chưa live Telegram.
+
+**Owner setup T10 local: không cần thêm key/provider/server.** Dùng keyring contract hiện có
+với fake fixtures. Trước external acceptance T14 cần test bot/account + secure environment,
+inventory/file có quyền phân phối và hướng dẫn thủ công thật. Staff attestation về manual
+delivery không được bot tự xác minh. History/resend/refund/live và production còn task sở hữu.
 
 ## Điều kiện cần Owner cung cấp trước khi mở bán
 

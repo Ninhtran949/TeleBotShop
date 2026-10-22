@@ -46,7 +46,7 @@ async def close_unpaid(work: UnitOfWork, order: Order, reason: CloseReason) -> N
     if order.status != OrderStatus.AWAITING_PAYMENT:
         raise InvalidAction("Order cannot be closed")
     await work.orders.close(order, reason)
-    if not await work.orders.release(order):
+    if order.product_type in FINITE_TYPES and not await work.orders.release(order):
         raise InvalidAction("Reservation unavailable")
     await work.orders.audit(order, f"order.{reason.value.lower()}")
 
@@ -70,15 +70,18 @@ class OrderService:
                     raise InvalidAction("Checkout action belongs to another product")
                 return existing
             product = await work.catalog.product(product_id, for_update=True)
-            if (
-                product is None
-                or product.sale_state != SaleState.ACTIVE
-                or product.draft.product_type not in FINITE_TYPES
-            ):
+            if product is None or product.sale_state != SaleState.ACTIVE:
                 raise CatalogNotFound("Product unavailable for checkout")
-            unit_id = await work.orders.available_unit(product_id)
-            if unit_id is None:
-                raise OutOfStock("Product out of stock")
+            resource = None
+            unit_id = None
+            if product.draft.product_type in FINITE_TYPES:
+                unit_id = await work.orders.available_unit(product_id)
+                if unit_id is None:
+                    raise OutOfStock("Product out of stock")
+            else:
+                resource = await work.resources.current(product.id)
+                if resource is None or resource.metadata != product.draft.metadata:
+                    raise CatalogNotFound("Product resource unavailable")
             now = await work.orders.now()
             order = Order(
                 uuid4(),
@@ -99,6 +102,8 @@ class OrderService:
                 secrets.token_urlsafe(24),
             )
             await work.orders.save(order, action_id)
+            if resource is not None:
+                await work.resources.bind(order, resource.id)
             await work.orders.audit(order, "order.created")
             await work.commit()
             return order

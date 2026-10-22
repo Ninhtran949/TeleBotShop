@@ -97,7 +97,8 @@ permissions = sa.Table(
     sa.Column("name", sa.String(32), primary_key=True),
     sa.CheckConstraint(
         "name IN ('access.manage', 'settings.manage', 'catalog.manage', "
-        "'inventory.manage', 'orders.read', 'payments.refund', 'tickets.manage')",
+        "'inventory.manage', 'fulfillment.manage', 'orders.read', "
+        "'payments.refund', 'tickets.manage')",
         name="ck_permissions_name",
     ),
 )

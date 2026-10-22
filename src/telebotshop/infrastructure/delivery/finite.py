@@ -20,8 +20,14 @@ from telebotshop.domain.models.fulfillment import (
     DeliveryRequest,
     DeliveryResult,
     DeliveryState,
+    ManualNotice,
 )
 from telebotshop.domain.models.inventory import LicensePayload, UniqueKeyPayload
+from telebotshop.domain.models.resources import (
+    DigitalFilePayload,
+    ReusableDocumentPayload,
+    ReusableTextPayload,
+)
 
 
 class FiniteDeliverySender(DeliverySender):
@@ -40,18 +46,41 @@ class FiniteDeliverySender(DeliverySender):
             request.payload, LicensePayload
         ):
             text = request.payload.license_key
+        elif request.context.kind == ProductType.REUSABLE_RESOURCE and isinstance(
+            request.payload, ReusableTextPayload
+        ):
+            text = request.payload.text
+        elif request.context.kind == ProductType.MANUAL_FULFILLMENT and isinstance(
+            request.payload, ManualNotice
+        ):
+            text = request.payload.customer_notice
+        elif (
+            request.context.kind == ProductType.DIGITAL_FILE
+            and isinstance(request.payload, DigitalFilePayload)
+            or request.context.kind == ProductType.REUSABLE_RESOURCE
+            and isinstance(request.payload, ReusableDocumentPayload)
+        ):
+            text = None
         else:
             return DeliveryResult(DeliveryState.FAILED, code=DeliveryCode.INVALID_ENTITLEMENT)
         timeout = min(request.timeout_seconds, remaining)
         try:
             async with asyncio.timeout(timeout):
-                message = await self.bot.send_message(
-                    chat_id=request.destination_telegram_id,
-                    text=text,
-                    parse_mode=None,
-                    link_preview_options=LinkPreviewOptions(is_disabled=True),
-                    request_timeout=timeout,
-                )
+                if text is None:
+                    message = await self.bot.send_document(
+                        chat_id=request.destination_telegram_id,
+                        document=request.payload.file_id,
+                        parse_mode=None,
+                        request_timeout=timeout,
+                    )
+                else:
+                    message = await self.bot.send_message(
+                        chat_id=request.destination_telegram_id,
+                        text=text,
+                        parse_mode=None,
+                        link_preview_options=LinkPreviewOptions(is_disabled=True),
+                        request_timeout=timeout,
+                    )
         except TelegramRetryAfter as error:
             if type(error.retry_after) is int and 1 <= error.retry_after <= 86400:
                 return DeliveryResult(
@@ -73,6 +102,8 @@ class FiniteDeliverySender(DeliverySender):
             message.chat.id != request.destination_telegram_id
             or message.chat.type != "private"
             or message.message_id <= 0
+            or text is None
+            and message.document is None
         ):
             return DeliveryResult(DeliveryState.UNCERTAIN, code=DeliveryCode.NETWORK)
         return DeliveryResult(DeliveryState.SENT, message_id=message.message_id)
