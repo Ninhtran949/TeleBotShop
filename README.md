@@ -4,13 +4,14 @@ Shop Telegram bán tài nguyên số có quyền phân phối, thanh toán Stars
 Trạng thái và task đang được thực hiện: [PROJECT](docs/PROJECT.md),
 [implementation plan](docs/plans/shop/implementation-plan.md).
 
-T01–T10 đã có toolchain/runtime, identity/permissions/audit, catalog PostgreSQL với năm loại
+T01–T11 đã có toolchain/runtime, identity/permissions/audit, catalog PostgreSQL với năm loại
 metadata công khai, admin product maintenance và kho key/license mã hóa, import atomic,
 retire/low-stock có phân quyền và order/reservation/expiry cho key/license. Durable invoice
 intent, pre-checkout approval, durable receipt, paid allocation và READY fulfillment intent đã có.
 T09 có worker giao key/license, fenced attempts/recovery và bounded known-failure retry.
 T10 thêm nguồn mã hóa theo phiên bản cho file/reusable/manual, document dispatch và staff
-completion có bằng chứng/xác nhận. Customer Buy/navigation còn core UI T14; chưa có production webhook.
+completion có bằng chứng/xác nhận. T11 thêm lịch sử đơn, dashboard staff và resend cùng
+entitlement có xác nhận. Customer Buy/navigation còn core UI T14; chưa có production webhook.
 Telegram API trong tests là mock; PostgreSQL integration dùng DB thật.
 
 ## Môi trường development
@@ -76,7 +77,7 @@ Operator có thể chạy một batch tối đa 100 đơn hết hạn và 100 in
 uv run --no-sync telebotshop expire-orders
 ```
 
-Lệnh cần DATABASE_URL/schema head `0010_resources`, không cần BOT_TOKEN/OWNER_ID hoặc
+Lệnh cần DATABASE_URL/schema head `0011_history`, không cần BOT_TOKEN/OWNER_ID hoặc
 inventory keys; không gửi Telegram. TTL reservation 15 phút theo DB time. Claim SENDING
 quá 30 giây chuyển UNCERTAIN, giữ attempt và không tự gửi lại. Chạy lặp theo lịch vận hành
 khi có checkout; T06 chưa có scheduler/worker hoặc thao tác tự reconcile/resend invoice.
@@ -99,7 +100,7 @@ handler không send/decrypt/giao hàng. Chưa có nghiệm thu tải/latency Tel
 
 ## Worker giao hàng (T09–T10)
 
-Sau migration head `0010_resources`, đặt BOT_TOKEN/OWNER_ID, DATABASE_URL và inventory
+Sau migration head `0011_history`, đặt BOT_TOKEN/OWNER_ID, DATABASE_URL và inventory
 keys qua environment bảo vệ như polling. Command có thể gửi secret tới buyer; chỉ operator
 chạy với đúng bot/environment và authorization gửi thực tế. Automated tests dùng mock.
 
@@ -159,7 +160,7 @@ Trong private chat:
 - `/admin` kiểm tra quyền hiện tại. Owner có Quản lý quyền, Cài đặt, Sản phẩm và Kho hàng;
   staff có `catalog.manage` thấy Sản phẩm, `inventory.manage` thấy Kho hàng.
   T10 thêm Nguồn giao hàng và Giao hàng thủ công theo quyền hiện tại.
-  History/resend thuộc T11, refund/reconcile thuộc T13.
+  T11 thêm Đơn hàng/Tổng quan đơn; refund/reconcile thuộc T13.
 - Owner dùng `/grant <Telegram_ID> <ADMIN|SUPPORT> <permission>` hoặc `/revoke` với cùng
   ba tham số, sau đó bấm **Xác nhận** trong 10 phút. Người nhận phải `/start` trước;
   lấy ID của chính mình từ Tài khoản. Mỗi lần chỉ đổi một permission.
@@ -325,7 +326,39 @@ Replay không hoàn tất lần hai. Preview/log/audit không echo nội dung ng
 **Owner setup cho T10 local: không cần thêm key/provider/server.** Tests dùng fixture giả,
 Telegram mock và PostgreSQL test cô lập. Để nghiệm thu Telegram T14 cần test bot/account,
 secrets trong môi trường bảo mật và tài nguyên có quyền phân phối; không gửi secrets trong chat.
-Public Buy, history/resend, refund/reconcile và production deployment vẫn theo task sở hữu.
+Public Buy, refund/reconcile và production deployment vẫn theo task sở hữu.
+
+## Lịch sử đơn và gửi lại (T11)
+
+- Khách dùng **Đơn hàng đã mua**, `/orders` hoặc `/orders ORDER_ID`. Danh sách 5 đơn/trang,
+  mới nhất trước, hiển thị mã đơn, tên/giá lúc mua, trạng thái và thời gian UTC. Chỉ chính
+  buyer được xem, kể cả khi tự sửa callback/ID; không trả invoice payload hoặc inventory secret.
+- Staff có `orders.read` dùng **Đơn hàng**, `/staff_orders [ORDER_ID]` và
+  **Tổng quan đơn** hoặc `/dashboard`. Danh sách/dashboard giới hạn 30 ngày gần nhất;
+  ID lookup vẫn đọc được đơn cũ theo quyền. Tổng số/trạng thái/giá trị đơn đã thanh toán
+  lấy từ PostgreSQL, không số mẫu; giá trị là snapshot các đơn có receipt MATCHED,
+  chưa trừ refund và không cộng extra/unmatched charges.
+- **Xem lại / gửi lại tài nguyên** tạo xác nhận 10 phút, chưa gửi ngay. Khách chỉ gửi về
+  private buyer đã lưu. Staff cần cả `orders.read` và `fulfillment.manage`; quyền xem
+  đơn không cho đọc/gửi secrets. Xác nhận gắn actor và lần giao gốc, kiểm tra lại quyền,
+  buyer, payment, state và hold trước decrypt; không đổi destination từ callback.
+
+Chỉ đơn `DELIVERED` với primary work `SENT`, không hold/attention, được gửi lại.
+Key/license/file/reusable dùng cùng unit/resource version và typed sender T09–T10;
+catalog/source mới không thay nội dung cũ. Không allocate key mới hoặc mở lại primary work.
+Đơn thủ công chỉ xem trạng thái; không lặp lại công việc hoặc gửi lại thông báo đang chờ.
+
+`resend_actions` giữ confirmation, send window và kết quả riêng. Commit `SENDING` trước API,
+không giữ DB connection qua Telegram; lưu kết quả/audit trong transaction khác. Replay cùng
+action không gọi send lần hai. Known failure cần yêu cầu mới rõ ràng; không retry tự động.
+Timeout/mất ACK/crash sau claim được coi là chưa rõ: history hiển thị `UNCERTAIN` khi quá
+deadline; lần gọi lại action/prepare lưu trạng thái này bền vững, giữ late observation,
+chặn resend tiếp và chặn đặt refund hold tới khi được đối soát. Chưa có resolver trước T13.
+
+**Owner setup T11 local: không cần thêm key/provider/server.** Tests dùng fake inventory,
+PostgreSQL test cô lập và Telegram mock. Real Telegram acceptance vẫn cần test bot/account,
+secrets/keyring hiện có qua environment bảo vệ ở T14. Refund ledger còn T13: contract test
+cho repository state `REFUNDED` không thay thế native refund-vs-resend acceptance lúc đó.
 
 ## PostgreSQL integration tests
 

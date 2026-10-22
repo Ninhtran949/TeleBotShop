@@ -1,0 +1,29 @@
+from datetime import datetime
+from typing import Protocol
+from uuid import UUID
+
+from telebotshop.domain.models.catalog import Page
+from telebotshop.domain.models.fulfillment import DeliveryResult
+from telebotshop.domain.models.history import OrderDashboard, OrderView, ResendAction, ResendState
+
+
+class HistoryRepository(Protocol):
+    async def page(
+        self, buyer_id: UUID | None, page: int, since: datetime | None
+    ) -> Page[OrderView]: ...
+    async def detail(self, order_id: UUID, buyer_id: UUID | None) -> OrderView | None: ...
+    async def dashboard(self, since: datetime) -> OrderDashboard: ...
+    async def resend(self, action_id: UUID, *, for_update: bool = False) -> ResendAction | None: ...
+    async def active_resend(self, work_id: UUID) -> ResendAction | None: ...
+    async def save_resend(self, action: ResendAction) -> None: ...
+    async def start_resend(
+        self, action: ResendAction, now: datetime, deadline: datetime
+    ) -> None: ...
+    async def finish_resend(
+        self,
+        action: ResendAction,
+        state: ResendState,
+        now: datetime,
+        result: DeliveryResult | None = None,
+    ) -> bool: ...
+    async def audit_resend(self, action: ResendAction, order_id: UUID, event: str) -> None: ...

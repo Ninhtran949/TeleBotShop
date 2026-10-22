@@ -1,6 +1,6 @@
 # Spec: admin-support-operations
 
-Status: T03/T04/T05 triển khai AO-01 foundation cho quyền/settings, catalog/product maintenance và protected encrypted inventory import/retire/stock/low-stock; phần commerce/support/operations còn theo tasks sau, chưa nghiệm thu toàn AO-01..06. Nguồn: `task.md` §§6,9,10,11,13. Depends on: identity-access, catalog-inventory, orders-payments, fulfillment.
+Status: T03–T11 triển khai foundation cho quyền/settings, catalog/kho, typed/manual delivery và real scoped order history/dashboard/confirmed resend. Tickets/support T12, refunds/reconciliation T13 và operations còn theo tasks sở hữu; chưa nghiệm thu toàn AO-01..06. Nguồn: `task.md` §§6,9,10,11,13. Depends on: identity-access, catalog-inventory, orders-payments, fulfillment.
 
 ## Admin và support
 
@@ -16,6 +16,13 @@ Status: T03/T04/T05 triển khai AO-01 foundation cho quyền/settings, catalog/
 `/paysupport` phải hoạt động trước payment acceptance; payment issues liên kết ticket/order an toàn. `/terms`/đường dẫn điều khoản và support identity là nội dung Owner cung cấp, không tự bịa điều khoản/refund window. `/start` có navigation Back/Home/Cancel và error text Việt rõ trạng thái.
 
 ## Threat boundaries và controls
+
+T11 `/staff_orders [ORDER_ID]` và `/dashboard` cần orders.read, không expose inventory
+payload. Lists/dashboard giới hạn 30 ngày, 5 items/page; exact ID lookup vẫn kiểm tra quyền.
+Dashboard dùng native DB counts/status và snapshot Stars của đơn có primary MATCHED,
+không cộng extra/unmatched receipts, không gọi là net sau refund. Staff resend cần thêm
+fulfillment.manage, gửi tới buyer gốc qua confirmation có audit. Không có resolver cho
+resend uncertain trước T13 hoặc staff ticket scope trước T12.
 
 | Boundary / tài sản | Abuse case | Control bắt buộc |
 | --- | --- | --- |

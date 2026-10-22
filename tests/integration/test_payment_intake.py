@@ -9,6 +9,7 @@ from sqlalchemy.exc import OperationalError
 
 from telebotshop.application.services.access import AccessService
 from telebotshop.application.services.catalog import CatalogService
+from telebotshop.application.services.history import HistoryService
 from telebotshop.application.services.identity import IdentityService
 from telebotshop.application.services.pre_checkout import PreCheckoutService
 from telebotshop.bootstrap import create_dispatcher
@@ -18,6 +19,7 @@ from tests.manual import manual_service
 from tests.orders import order_service, setup_orders
 from tests.payments import payment_service
 from tests.pre_checkout import payable_invoice
+from tests.resends import RecordingSender, resend_service
 from tests.resources import resource_service
 from tests.telegram import TelegramRecorder, payment_update, pre_checkout_update
 
@@ -41,6 +43,8 @@ async def test_receipt_commit_failure_returns_http_error_and_redelivery_commits_
         payment_service(engine),
         resources=resource_service(engine),
         manual=manual_service(engine),
+        history=HistoryService(factory),
+        resends=resend_service(engine, RecordingSender(engine)),
     )
     # ASGI acknowledgement harness only; production webhook authentication belongs to T14.
     app = FastAPI()
@@ -106,6 +110,8 @@ async def test_real_dispatcher_approval_then_receipt_uses_server_snapshots_witho
         payment_service(engine),
         resources=resource_service(engine),
         manual=manual_service(engine),
+        history=HistoryService(factory),
+        resends=resend_service(engine, RecordingSender(engine)),
     )
     try:
         await dispatcher.feed_update(telegram.bot, pre_checkout_update(payload=order.payload))

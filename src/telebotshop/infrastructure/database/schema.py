@@ -1,1 +1,1 @@
-SCHEMA_HEAD = "0010_resources"
+SCHEMA_HEAD = "0011_history"

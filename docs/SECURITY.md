@@ -1,10 +1,10 @@
-# Security controls — T03–T10
+# Security controls — T03–T11
 
 Phạm vi hiện có: identity, permission, audit, public catalog/admin, encrypted key/license
 inventory/resource sources, orders/approval/receipt/paid entitlement, typed delivery worker,
 manual completion và development polling. Đây là controls đã
 triển khai/automated-test, chưa là production hoặc toàn bộ shop security acceptance.
-History/tickets/refund, webhook và release có gate riêng trong
+History/resend có T11 local evidence. Tickets/refund, webhook và release có gate riêng trong
 [implementation plan](plans/shop/implementation-plan.md).
 
 | Boundary | Control hiện tại | Evidence |
@@ -139,6 +139,24 @@ preview/log/audit; general audit chỉ lưu digest. Confirmation actor/attempt/T
 access lock qua order→work→action mutation; hold/state/revoked/replay checks và PostgreSQL
 deferred/unique guards bảo vệ completion. DB/audit failure rollback, lost ACK replay không
 giao lần hai. Bằng chứng là staff attestation về xử lý bên ngoài, chưa được bot tự xác minh.
+
+T11 history chỉ select public order snapshot/status/IDs, không invoice payload/ciphertext.
+Customer scope được gắn trong SQL theo profile hiện tại; staff cần orders.read, không dựa
+vào callback mode hoặc menu đã nhìn thấy. Staff resend cần thêm fulfillment.manage; giữ
+access lock tới commit, buyer có ownership check riêng. Actor/action binding không cho
+staff khác/Owner xác nhận hộ một pending action. Staff không nhận delivery payload qua UI.
+
+Resend chỉ nhận DELIVERED + SENT nonmanual, không hold/attention; shared reader recheck
+primary receipt/buyer/item/type/unit/resource trước decrypt. Không đổi destination hoặc
+allocation, không mở lại refunded/non-delivered work. Begin→API→complete tách transactions;
+DB unique/immutable/state guards bảo vệ replay và hold race. SENDING quá deadline được
+hiển thị uncertain và persist khi action được gọi lại; crash/lost ACK/cancellation không
+auto retry. Late result chỉ thêm observation, không clear uncertainty. Audit giữ action/work
+IDs và fixed events, không lưu payload. PostgreSQL tests có hai physical connections.
+
+Refund persistence/resolver vẫn T13; test REFUNDED hiện là injected repository DTO cho
+fail-closed allowlist, chưa native refund ledger/race acceptance. Không suy live Telegram
+hoặc exactly-once delivery từ mock contracts. Staff manual work không tự replay.
 
 Giới hạn cần hoàn thiện ở task tương ứng:
 

@@ -2,7 +2,7 @@
 
 T02 dùng PostgreSQL **18.6**, SQLAlchemy **2.0.55** Async + asyncpg **0.32.0** và
 Alembic **1.20.0**. T03 thêm identity/access/settings và audit repositories bằng SQLAlchemy
-Core tables; không trả ORM/session ra application. Head hiện tại **`0010_resources`**;
+Core tables; không trả ORM/session ra application. Head hiện tại **`0011_history`**;
 `0001_runtime` giữ nguyên, `0002_identity` thêm identity/Owner/audit, `0003_access` thêm
 explicit grants, settings và confirmation. T04 thêm `0004_catalog`; T05 thêm encrypted
 inventory/actions/key verifiers; T06 thêm orders/items/invoice intents và finite reservations.
@@ -11,6 +11,7 @@ T08 thêm receipt/conflict ledger, PAID/attention, permanent ALLOCATED và READY
 T09 mở finite work/attempt/recovery/observations, giữ nguyên revisions 1–8.
 T10 thêm resource versions/order bindings/manual confirmations và mở nonfinite commerce;
 revisions 0001–0009 giữ nguyên.
+T11 thêm resend actions và hai history indexes; không sửa revisions 0001–0010.
 
 | Tables | Contract |
 | --- | --- |
@@ -30,6 +31,7 @@ revisions 0001–0009 giữ nguyên.
 | `resource_versions` | Immutable encrypted file/text/document/manual source cùng public metadata snapshot; actor/product/previous-version FKs, pending/active/retired/cancelled, một ACTIVE/product; confirmed publication chặn stale version. |
 | `order_resources` | Một immutable resource binding/nonfinite item; item/version FKs và unique pair; deferred trigger bắt order thiếu binding. Finite item vẫn bắt buộc exact inventory unit, nonfinite item không có unit. |
 | `manual_actions` | Actor/work/attempt-bound confirmation, encrypted evidence với AAD riêng, 10-minute expiry; một applied completion/work, terminal action immutable; completion/work/order deferred atomic. |
+| `resend_actions` | Actor/mode/work/original-attempt-bound 10-minute confirmation; immutable identity/history, một PENDING/SENDING/UNCERTAIN mỗi work; riêng send window/result/late observation, không tạo entitlement mới. |
 | `invoice_intents` | Một opaque payload/order, durable unique attempt, READY/SENDING/SENT/REJECTED/UNCERTAIN/CANCELLED; no automatic resend, không phải payment receipt. |
 | `pre_checkout_approvals` | Order PK/FK, unique opaque query ID, approved_at theo DB time; chặn UPDATE/DELETE/TRUNCATE. Một approval/order, giữ qua timeout/expiry. |
 | `payments` | Append-only bounded financial receipt, unique Telegram charge, nullable payer/order, MATCHED/REQUIRES_REVIEW + reason; partial unique primary MATCHED/order, không cấm extra receipts. |
@@ -339,3 +341,28 @@ Upgrade 9→10 được kiểm tra từ READY/CLAIMED/SENDING/SENT/RETRY_WAIT/UN
 work, giữ nguyên old columns/rows/payment/ciphertext. Downgrade chỉ khi chưa có resource,
 manual/grant history; không xóa dữ liệu để downgrade. Bốn predecessor function definitions
 được freeze trong migration để phục hồi chính xác các guard T08/T09. Metadata không drift.
+
+## T11 history và resend actions
+
+History projection chỉ đọc snapshot của orders/order_items cùng current delivery status;
+buyer filter ở SQL, deterministic created_at/id order, limit 6 để trả 5 + has_more. Index
+created_at/id và buyer/created_at/id hỗ trợ customer/staff lists. Staff list/dashboard bound
+30 ngày theo DB time; aggregates từ order snapshot + tồn tại MATCHED primary receipt,
+không cộng extra/unmatched payments hoặc gán thành net revenue sau refund.
+
+`resend_actions` giữ actor, staff mode, work và original SENT attempt bất biến. Partial
+unique mỗi work cho PENDING/SENDING/UNCERTAIN. Actor-bound 10-minute confirmation chuyển
+PENDING→SENDING dưới order/work locks sau current authorization; send window được lưu
+trước network. Result/late observation và fixed audit event commit riêng, không sửa primary
+fulfillment, order DELIVERED hoặc inventory allocation/resource binding. Không plaintext
+delivery payload trong table/audit. Terminal rows không update/delete/truncate; late
+UNCERTAIN chỉ nhận một observation, giữ nguyên state/deadline/error/completed_at.
+
+Guard lấy work lock khi insert/begin và kiểm tra original delivered paid binding; hold
+trigger chặn hold mới khi action SENDING/UNCERTAIN. Cùng order→work→action lock order với
+application/hold. Pending hết hạn được cancel khi yêu cầu lại; expired SENDING không retry,
+history hiển thị uncertain và confirm/prepare persist UNCERTAIN. Reconcile tới T13.
+
+Upgrade/downgrade rỗng giữ nguyên cả bảy T10 finite states/attempt/payment/ciphertext/audit.
+Downgrade từ chối nếu có bất kỳ resend history; không xóa dữ liệu để vượt guard. Không sửa
+0001–0010 hoặc các predecessor functions. Refund schema/state transitions vẫn tới T13.

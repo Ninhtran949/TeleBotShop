@@ -6,6 +6,7 @@ from uuid import uuid4
 from telebotshop.application.ports.fulfillment import DeliverySender
 from telebotshop.application.ports.inventory_crypto import InventoryCipher
 from telebotshop.application.ports.uow import UnitOfWork, UnitOfWorkFactory
+from telebotshop.application.services.entitlements import read_entitlement
 from telebotshop.domain.errors import InvalidInput
 from telebotshop.domain.models.catalog import ProductType
 from telebotshop.domain.models.fulfillment import (
@@ -17,15 +18,9 @@ from telebotshop.domain.models.fulfillment import (
     DeliveryResult,
     DeliveryState,
     Fulfillment,
-    ManualNotice,
 )
 from telebotshop.domain.models.inventory import InventoryCryptoError
 from telebotshop.domain.models.orders import Order, OrderStatus
-from telebotshop.domain.models.resources import (
-    ManualPayload,
-    ResourceContext,
-    validate_resource_payload,
-)
 
 logger = logging.getLogger(__name__)
 
@@ -90,36 +85,26 @@ class FulfillmentService:
                 await work.commit()
                 return None
             committed = fulfillment.work
-            allowed = (
-                fulfillment.send_count < self.policy.max_attempts
-                and order.status in {OrderStatus.PAID, OrderStatus.FULFILLING}
-                and order.attention_reason is None
-                and order.buyer_id == committed.buyer_id
-                and order.item_id == committed.order_item_id
-                and order.unit_id == committed.inventory_unit_id
-                and order.product_type == committed.product_type
-                and await work.payments.primary(order.id) == committed.payment_id
-            )
+            allowed = fulfillment.send_count < self.policy.max_attempts and order.status in {
+                OrderStatus.PAID,
+                OrderStatus.FULFILLING,
+            }
             code = (
                 DeliveryCode.RETRY_EXHAUSTED
                 if fulfillment.send_count >= self.policy.max_attempts
                 else DeliveryCode.INVALID_ENTITLEMENT
             )
             try:
-                encrypted = await work.fulfillment.entitlement(fulfillment) if allowed else None
+                material = (
+                    await read_entitlement(work, order, fulfillment, self.cipher)
+                    if allowed
+                    else None
+                )
             except (InventoryCryptoError, InvalidInput):
-                encrypted, code = None, DeliveryCode.CRYPTO
-            if encrypted is not None:
+                material, code = None, DeliveryCode.CRYPTO
+            if material is not None:
                 try:
-                    payload = self.cipher.open(encrypted.context, encrypted.sealed)
-                    if isinstance(encrypted.context, ResourceContext):
-                        if encrypted.metadata is None:
-                            raise InvalidInput("Missing resource snapshot")
-                        validate_resource_payload(
-                            committed.product_type, encrypted.metadata, payload
-                        )
-                        if isinstance(payload, ManualPayload):
-                            payload = ManualNotice(payload.customer_notice)
+                    context, payload = material
                     now = await work.orders.now()
                     if attempt.lease_expires_at <= now:
                         return None
@@ -128,7 +113,7 @@ class FulfillmentService:
                         committed.id,
                         claim.attempt_id,
                         committed.destination_telegram_id,
-                        encrypted.context,
+                        context,
                         payload,
                         deadline,
                         self.policy.timeout_seconds,

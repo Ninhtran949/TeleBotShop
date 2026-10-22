@@ -1,6 +1,6 @@
 # Spec: fulfillment
 
-Status: T09–T10 đã triển khai typed worker đủ năm loại, claim/lease/recovery/retry/uncertain, encrypted source snapshots và permissioned manual completion. History/resend còn T11, actual refund/reconciliation T13; chưa toàn FD hoặc Telegram live acceptance. Nguồn: `task.md` §§4,5,11. Depends on: committed work contract của [orders-payments](orders-payments.md). [ADR-0002](../../adr/0002-payment-and-fulfillment-safety.md) quyết định delivery guarantee.
+Status: T09–T11 đã triển khai typed worker đủ năm loại, claim/lease/recovery/retry/uncertain, encrypted source snapshots, manual completion và scoped history/confirmed resend. Actual refund/reconciliation còn T13; chưa toàn FD hoặc Telegram live acceptance. Nguồn: `task.md` §§4,5,11. Depends on: committed work contract của [orders-payments](orders-payments.md). [ADR-0002](../../adr/0002-payment-and-fulfillment-safety.md) quyết định delivery guarantee.
 
 ## Entitlement và dispatch
 
@@ -89,6 +89,27 @@ Nguồn API đối chiếu 2026-10-22: [sendMessage](https://core.telegram.org/b
 [retry_after](https://core.telegram.org/bots/api#responseparameters),
 [aiogram 3.31.0 sendMessage](https://docs.aiogram.dev/en/latest/api/methods/send_message.html).
 Đây là local/mock evidence, không bảo đảm exactly-once network delivery hoặc production readiness.
+
+## T11 history/resend contract
+
+History trả public order snapshot và trạng thái; chính buyer hoặc staff có orders.read mới
+xem được. Lists 5/trang, staff list/dashboard từ 30 ngày gần nhất; lookup ID giữ scope cho
+đơn cũ. Resend chỉ cho primary SENT + order DELIVERED nonmanual, không hold/attention.
+Staff cần thêm fulfillment.manage. Reader shared với worker kiểm tra paid entitlement
+trước decrypt và typed sender dùng cùng source/unit/destination; không allocate hoặc
+chuyển trạng thái primary delivery. Manual không lặp công việc thực tế.
+
+Action PENDING có actor/mode/work/original-attempt binding và TTL 10 phút. Confirm recheck
+current quyền/state dưới access→order→work→action locks, commit SENDING trước API, rồi lưu
+SENT/FAILED/UNCERTAIN + observation/audit riêng. Không DB session qua send. Một active action
+mỗi work; replay không gửi lại, known failure cần action mới, uncertain chặn action mới.
+Expired SENDING hiển thị uncertain trong history, persist khi prepare/confirm gọi lại;
+không gửi lại sau restart. Late ACK giữ uncertainty và observation. Guard hold serialize
+với begin, chặn hold khi resend in-flight/uncertain. Reconciliation/refund ledger tới T13.
+
+REFUNDED và mọi state ngoài DELIVERED bị service allowlist chặn trước decrypt; REFUNDED
+repository DTO test hiện là simulated contract vì schema refund tới T13. T13 phải thêm
+native refund-ledger/resend race acceptance, không dựa riêng vào test này.
 
 ## Guarantee và giới hạn
 

@@ -2,7 +2,7 @@
 
 ## Trạng thái và lựa chọn
 
-Đây là baseline thiết kế được SE/SA chọn theo ủy quyền của Owner. T01–T10 đã triển khai toolchain/runtime, HTTP health, PostgreSQL/UoW/migrations, identity/permission/audit, public catalog/admin, encrypted inventory, orders/invoice intents và serialized pre-checkout approval, durable receipt, paid allocation/resource entitlement và READY intent. Development polling dùng checker thật và ghi receipt trước offset; worker dispatch đủ năm loại, manual có staff completion; public Buy/production webhook chưa có. Yêu cầu nghiệp vụ gốc ở [`task.md`](../task.md); lý do chọn kiến trúc ở [ADR-0001](adr/0001-modular-monolith.md). Thiết kế chỉ dựng package/file khi một slice cần dùng, không tạo toàn bộ cây trống.
+Đây là baseline thiết kế được SE/SA chọn theo ủy quyền của Owner. T01–T11 đã triển khai toolchain/runtime, HTTP health, PostgreSQL/UoW/migrations, identity/permission/audit, public catalog/admin, encrypted inventory, orders/invoice intents và serialized pre-checkout approval, durable receipt, paid allocation/resource entitlement và READY intent. Development polling dùng checker thật và ghi receipt trước offset; worker dispatch đủ năm loại, manual có staff completion; public Buy/production webhook chưa có. Yêu cầu nghiệp vụ gốc ở [`task.md`](../task.md); lý do chọn kiến trúc ở [ADR-0001](adr/0001-modular-monolith.md). Thiết kế chỉ dựng package/file khi một slice cần dùng, không tạo toàn bộ cây trống.
 
 Chọn **modular monolith**, một codebase/image, PostgreSQL là nguồn dữ liệu bền vững. Production dự kiến có hai process từ cùng image: HTTP ingress và fulfillment worker. Local polling chỉ là adapter development thay thế webhook, không chạy cùng webhook cho cùng bot.
 
@@ -144,7 +144,18 @@ queue/detail/confirmation/completion với `fulfillment.manage`, evidence AAD ri
 digest. Staff completion khóa access→order→work→action, atomic cùng order DELIVERED;
 hold thắng trước completion chặn decrypt/complete, không tự retry uncertain notice.
 Admin resource/manual routers chỉ parse/render và gọi use cases; bootstrap wire mọi
-concrete service/cipher/repo/router, network nằm ngoài UoW. Lịch sử/resend còn T11.
+concrete service/cipher/repo/router, network nằm ngoài UoW.
+
+T11 HistoryService đọc projection không secrets qua history port/repository; customer scope
+gắn buyer, staff cần current orders.read. Staff dashboard/list có 30-day bound, customer
+pagination 5 items. ResendService sở hữu confirmation và ba bước begin/send/complete,
+reuse reader `application/services/entitlements.py` cùng FulfillmentService. Reader kiểm tra
+paid binding trước ciphertext/decrypt; transport chỉ nhận typed request tới buyer gốc.
+Resend actions/observations không sửa primary work, allocation hoặc source snapshot.
+Staff resend cần thêm fulfillment.manage; access→order→work→action locks giữ current grant,
+hold và confirmation. PostgreSQL guard serialize resend begin với hold; in-flight/uncertain
+chặn hold mới. Quá send deadline không auto-retry, late result không xóa uncertainty.
+Router orders phục vụ customer/staff commands và callbacks; bootstrap wire service/sender.
 
 ## Ma trận import bắt buộc
 

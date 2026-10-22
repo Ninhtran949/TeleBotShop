@@ -121,19 +121,22 @@ class ManualNotice:
         validate_text(self.customer_notice, 500)
 
 
+type DeliveryPayload = (
+    SecretPayload
+    | DigitalFilePayload
+    | ReusableTextPayload
+    | ReusableDocumentPayload
+    | ManualNotice
+)
+
+
 @dataclass(frozen=True, repr=False)
 class DeliveryRequest:
     work_id: UUID
     attempt_id: UUID
     destination_telegram_id: int
     context: InventoryContext | ResourceContext
-    payload: (
-        SecretPayload
-        | DigitalFilePayload
-        | ReusableTextPayload
-        | ReusableDocumentPayload
-        | ManualNotice
-    )
+    payload: DeliveryPayload
     deadline: datetime
     timeout_seconds: int
 

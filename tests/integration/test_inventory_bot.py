@@ -7,6 +7,7 @@ from aiogram.types import File
 
 from telebotshop.application.services.access import AccessService
 from telebotshop.application.services.catalog import CatalogService
+from telebotshop.application.services.history import HistoryService
 from telebotshop.application.services.identity import IdentityService
 from telebotshop.application.services.payments import PaymentService
 from telebotshop.application.services.pre_checkout import PreCheckoutService
@@ -17,6 +18,7 @@ from telebotshop.infrastructure.database.uow import unit_of_work
 from telebotshop.infrastructure.telegram import guard as guard_module
 from tests.inventory import inventory_service, setup_inventory
 from tests.manual import manual_service
+from tests.resends import RecordingSender, resend_service
 from tests.resources import resource_service
 from tests.telegram import TelegramRecorder, callback_update, document_update, message_update
 
@@ -58,6 +60,8 @@ async def test_upload_confirm_stock_pages_retire_and_low_stock_use_real_db_outsi
         PaymentService(factory),
         resources=resource_service(migrated_database),
         manual=manual_service(migrated_database),
+        history=HistoryService(factory),
+        resends=resend_service(migrated_database, RecordingSender(migrated_database)),
     )
 
     async def feed(update):
@@ -147,6 +151,8 @@ async def test_revocation_during_download_is_rechecked_before_persisting_import(
         PaymentService(factory),
         resources=resource_service(migrated_database),
         manual=manual_service(migrated_database),
+        history=HistoryService(factory),
+        resends=resend_service(migrated_database, RecordingSender(migrated_database)),
     )
     await dispatcher.feed_update(telegram.bot, document_update("/import DEMO-1", actor=101))
     assert "không có quyền" in telegram.calls[-1].text

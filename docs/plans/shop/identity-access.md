@@ -1,6 +1,6 @@
 # Spec: identity-access
 
-Status: T03 đã triển khai identity/permission foundation và automated local tests; customer order/ticket endpoints thuộc T11/T12, Telegram external acceptance thuộc T14. Nguồn: `task.md` §§3,6,9,10. Depends on: không. Scope và coding/commands theo [index](README.md), [ARCHITECTURE](../../ARCHITECTURE.md), [CONVENTIONS](../../CONVENTIONS.md).
+Status: T03 identity/permission foundation và T11 scoped customer/staff history/resend đã triển khai local; tickets còn T12, Telegram external acceptance thuộc T14. Nguồn: `task.md` §§3,6,9,10. Depends on: không. Scope và coding/commands theo [index](README.md), [ARCHITECTURE](../../ARCHITECTURE.md), [CONVENTIONS](../../CONVENTIONS.md).
 
 ## Contract
 
@@ -37,6 +37,12 @@ version/expiry và audit. Chi tiết schema và giới hạn hiện tại ở [D
 Ứng dụng chỉ nhận customer flows nhạy cảm trong private chat; group callback không được dùng làm delivery destination. `/admin` có thể từ chối sớm ở router để UX tốt, nhưng service vẫn phải từ chối direct unauthorized call.
 
 ## Acceptance criteria
+
+T11 history/detail: customer chỉ own buyer, staff current orders.read; plaintext không nằm
+trong metadata projection. Staff resend cần thêm fulfillment.manage và actor-bound action,
+customer chỉ resend về private buyer đã lưu. Confirmation recheck grant/state/hold trước
+shared authorized entitlement reader/decrypt. Hai native connections, IDOR/callback replay,
+revoked grant và mock Telegram contracts có coverage; refund ledger/live gates vẫn riêng.
 
 - **IA-01:** Hai `/start` đồng thời cho cùng ID chỉ tạo một user; đổi username vẫn là cùng user, không tăng quyền.
 - **IA-02:** User thường gọi `/admin`, sửa callback hoặc gọi trực tiếp protected use case đều bị từ chối và không mutate DB/expose dữ liệu.

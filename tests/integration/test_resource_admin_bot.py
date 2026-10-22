@@ -7,6 +7,7 @@ from sqlalchemy import text
 
 from telebotshop.application.services.access import AccessService
 from telebotshop.application.services.catalog import CatalogService
+from telebotshop.application.services.history import HistoryService
 from telebotshop.application.services.identity import IdentityService
 from telebotshop.application.services.pre_checkout import PreCheckoutService
 from telebotshop.bootstrap import create_dispatcher
@@ -18,6 +19,7 @@ from tests.inventory import inventory_service
 from tests.manual import manual_service
 from tests.orders import order_service
 from tests.payments import payment_service, receipt
+from tests.resends import RecordingSender, resend_service
 from tests.resources import resource_product, resource_service
 from tests.telegram import TelegramRecorder, callback_update, document_update, message_update
 
@@ -54,6 +56,8 @@ async def test_runtime_resource_delivery_and_manual_completion_close_uow_before_
         payment_service(engine),
         resources=resource_service(engine),
         manual=manual_service(engine),
+        history=HistoryService(factory),
+        resends=resend_service(engine, RecordingSender(engine)),
     )
     try:
         if kind == ProductType.DIGITAL_FILE or document:

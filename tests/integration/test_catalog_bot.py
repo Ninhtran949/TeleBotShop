@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncEngine
 
 from telebotshop.application.services.access import AccessService
 from telebotshop.application.services.catalog import CatalogService
+from telebotshop.application.services.history import HistoryService
 from telebotshop.application.services.identity import IdentityService
 from telebotshop.application.services.payments import PaymentService
 from telebotshop.application.services.pre_checkout import PreCheckoutService
@@ -18,6 +19,7 @@ from telebotshop.infrastructure.database.uow import unit_of_work
 from telebotshop.infrastructure.telegram import guard as guard_module
 from tests.inventory import inventory_service
 from tests.manual import manual_service
+from tests.resends import RecordingSender, resend_service
 from tests.resources import resource_service
 from tests.telegram import TelegramRecorder, callback_update, message_update, photo_update
 
@@ -52,6 +54,8 @@ async def test_admin_customer_photo_price_and_hidden_callbacks_use_real_db_outsi
         PaymentService(factory),
         resources=resource_service(migrated_database),
         manual=manual_service(migrated_database),
+        history=HistoryService(factory),
+        resends=resend_service(migrated_database, RecordingSender(migrated_database)),
     )
 
     async def mutate(update: Update, *, cancel: bool = False) -> None:

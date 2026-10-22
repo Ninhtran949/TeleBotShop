@@ -14,6 +14,7 @@ def home_keyboard() -> InlineKeyboardMarkup:
                 InlineKeyboardButton(text="🔎 Tìm kiếm", callback_data="shop:searchhelp"),
             ],
             [InlineKeyboardButton(text="👤 Tài khoản", callback_data="profile")],
+            [InlineKeyboardButton(text="Đơn hàng đã mua", callback_data="ord:l:0")],
             [
                 InlineKeyboardButton(text="Trang chủ", callback_data="home"),
                 InlineKeyboardButton(text="Hủy", callback_data="cancel"),

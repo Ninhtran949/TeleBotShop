@@ -23,15 +23,18 @@ from telebotshop.api.health import create_api
 from telebotshop.application.services.access import AccessService
 from telebotshop.application.services.catalog import CatalogService
 from telebotshop.application.services.fulfillment import FulfillmentService
+from telebotshop.application.services.history import HistoryService
 from telebotshop.application.services.identity import IdentityService
 from telebotshop.application.services.inventory import InventoryService
 from telebotshop.application.services.manual import ManualFulfillmentService
 from telebotshop.application.services.orders import OrderService
 from telebotshop.application.services.payments import PaymentService
 from telebotshop.application.services.pre_checkout import PreCheckoutService
+from telebotshop.application.services.resends import ResendService
 from telebotshop.application.services.resources import ResourceService
 from telebotshop.bot.routers.catalog import create_catalog_router
 from telebotshop.bot.routers.identity import create_customer_router
+from telebotshop.bot.routers.orders import create_order_router
 from telebotshop.domain.errors import OwnerConfigurationError
 from telebotshop.domain.models.inventory import InventoryCryptoError
 from telebotshop.infrastructure.config import (
@@ -132,6 +135,8 @@ def create_dispatcher(
     *,
     resources: ResourceService,
     manual: ManualFulfillmentService,
+    history: HistoryService,
+    resends: ResendService,
 ) -> Dispatcher:
     dispatcher = PaymentsDispatcher(payments.record)
     guard = IngressGuard()
@@ -139,6 +144,7 @@ def create_dispatcher(
     dispatcher.callback_query.outer_middleware(guard)
     dispatcher.include_router(create_payment_router(payments.record))
     dispatcher.include_router(create_customer_router(identity))
+    dispatcher.include_router(create_order_router(history, resends, access))
     dispatcher.include_router(create_catalog_router(catalog))
     dispatcher.include_router(create_admin_router(access))
     dispatcher.include_router(create_catalog_admin_router(catalog, access))
@@ -189,6 +195,8 @@ async def run_polling(settings: BotSettings, inventory_settings: InventorySettin
                 PaymentService(factory),
                 resources=ResourceService(factory, cipher),
                 manual=ManualFulfillmentService(factory, cipher),
+                history=HistoryService(factory),
+                resends=ResendService(factory, cipher, FiniteDeliverySender(bot)),
             )
             try:
                 await dispatcher.start_polling(

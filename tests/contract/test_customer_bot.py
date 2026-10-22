@@ -32,7 +32,7 @@ async def test_start_uses_server_identity_and_only_renders_working_navigation(
     callbacks = {
         button.callback_data for row in reply.reply_markup.inline_keyboard for button in row
     }
-    assert callbacks == {"profile", "home", "cancel", "shop:root", "shop:searchhelp"}
+    assert callbacks == {"profile", "home", "cancel", "shop:root", "shop:searchhelp", "ord:l:0"}
     await telegram.bot.session.close()
 
 

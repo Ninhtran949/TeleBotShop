@@ -1,6 +1,6 @@
 # Implementation plan và task ledger
 
-Status: **T01–T10 hoàn tất; T11–T18 pending**. Owner giao T10 tường minh; hoàn tất local 2026-10-22. HEAD `6582dd0` (T09), index trống; agent không stage/commit/push hoặc tự mở rộng T11.
+Status: **T01–T11 hoàn tất local; T12–T18 pending**. Owner giao T11 qua `continue`; hoàn tất 2026-10-22. HEAD `f245807` (T10), index trống; agent không stage/commit/push hoặc tự mở rộng T12.
 
 ## Cách nhận và bàn giao task
 
@@ -714,7 +714,76 @@ Check scope: **H** = hai harness commands trong PROJECT. **C** = applicable lock
 
 ## Phase 3
 
-- [ ] **T11 — Order history và resend an toàn.** Depends: T10. Spec: FD-05, IA-02,05; AO-02,06. Scope: customer/staff order views và authorized entitlement reader/resend actions. Acceptance: buyer/staff scopes đúng, customer không mở order của người khác, resend cùng entitlement và không mở lại refunded order; staff dashboard/order counts dùng DB thật. Verify: C + D, IDOR/callback replay/resend state tests.
+- [x] **T11 — Order history và resend an toàn.** Depends: T10. Spec: FD-05, IA-02,05; AO-02,06. Scope: customer/staff order views và authorized entitlement reader/resend actions. Acceptance: buyer/staff scopes đúng, customer không mở order của người khác, resend cùng entitlement và không mở lại refunded order; staff dashboard/order counts dùng DB thật. Verify: C + D, IDOR/callback replay/resend state tests.
+
+  Owner giao task tiếp theo qua `continue`. Git đầu lượt thấy T10 staged; trước baseline/
+  edits T11 đã có external commit `f245807`. Baseline 251 tracked files và empty index
+  trong `.cache/t11-baseline/`; agent không stage/commit/push/discard work. Đã hoàn tất:
+
+  - [x] **T11.a — Scoped history/detail/dashboard.** Domain OrderView/OrderDashboard,
+    history port/service/SQL projection; customer gắn buyer từ profile, staff cần current
+    orders.read. Snapshot tên/giá/trạng thái/thời gian, 5 items/page và deterministic
+    ordering. Staff lists/dashboard 30-day bound; counts/status và Stars từ DB + matched
+    primary receipt, không cộng extra/unmatched charges hoặc gán thành net revenue.
+  - [x] **T11.b — Authorized reader và durable resend.** Shared read_entitlement giữ T10
+    paid/item/type/buyer/unit/resource checks, thêm explicit order binding; không load/
+    decrypt trước authorization/state/hold. ResendService confirmation actor/mode/work/
+    original-attempt-bound 10 phút; customer chỉ own order, staff cần orders.read +
+    fulfillment.manage. Chỉ DELIVERED + SENT nonmanual, không hold/attention. Begin commit
+    SENDING trước typed sender, complete/audit UoW riêng; giữ nguyên primary delivery và
+    entitlement. Retry cùng action không send lần hai; known failure cần action mới,
+    uncertain/crash/lost ACK không tự retry. Late ACK chỉ thêm observation.
+  - [x] **T11.c — Transport, guards, review và handoff.** `/orders [ORDER_ID]`,
+    `/staff_orders [ORDER_ID]`, `/dashboard` cùng Back/Home/pagination/confirmation/cancel;
+    plain text/no previews, không expose delivery payload trong history hoặc staff UI.
+    Bootstrap và mọi dispatcher callers/fixtures đã cập nhật. Migration 0011 thêm
+    resend_actions, active-action partial unique, immutable identity/history/lifecycle,
+    hold guard và history indexes; không sửa 0001–0010 hoặc predecessor functions.
+
+  Threat focus: forged customer/staff callbacks, IDOR, revoked grants, new source/catalog
+  sau delivery, confirmation replay, duplicate begin, hold-vs-send, lease expiry, cancellation/
+  crash/commit lost ACK, ciphertext tamper và unsafe downgrade. Manual history không lặp
+  công việc thực tế. Refund ledger/reconciliation T13 và public Buy/live T14 giữ task sở hữu.
+
+  **TDD/verification thực tế (CPython 3.12.15, PostgreSQL 18.6, Telegram mock):**
+
+  | Command/check | Result |
+  | --- | --- |
+  | Focused RED → GREEN | Missing history service, resend service và order router đều fail trước implementation. Native audit correlation uniqueness bắt lỗi reuse action UUID qua nhiều events; sửa deterministic event correlation rồi focused suites green. |
+  | Shared worker reader regressions | 19 native finite/resource/crypto/error cases passed sau extraction; full C/D bên dưới giữ mọi T01–T10 regressions. |
+  | `uv lock --check`; `uv sync --locked --no-build` | Exit 0; không đổi dependencies/lockfile. |
+  | `uv run --no-sync ruff check .`; `uv run --no-sync ruff format --check .` | Exit 0; **242 files** formatted. |
+  | `uv run --no-sync python scripts/check_architecture.py` | Exit 0; import matrix đạt. |
+  | `uv run --no-sync pytest tests/unit tests/contract tests/architecture -q --tb=line --junitxml=.cache/t11-c.xml` | Exit 0; **453 passed**, 26.21s; zero errors/failures/skips. |
+  | `APP_ENV=test`, isolated `TEST_DATABASE_URL`; `uv run --no-sync pytest tests/integration -q --tb=line --junitxml=.cache/t11-d.xml` | Exit 0; **338 passed**, 319.93s; native PostgreSQL, zero errors/failures/skips. |
+  | `python scripts/verify_harness.py`; `python -B -m unittest discover -s tests -p test_harness.py -v` | Exit 0; **6 harness tests** pass, original skills/references/license/provenance giữ nguyên. |
+  | `uv build --no-sources` | Exit 0; sdist + wheel, **104 source modules** khớp byte hashes; không cache/tools/tests/env secrets trong archives. |
+  | README runtime export + fresh `.cache/t11-wheel-runtime` | 37 locked hash-checked dependencies cài offline/no-build; wheel no-index/no-deps. `python -I .cache/t10-runtime-smoke.py .cache/t11-wheel-expected.json`: exit 0, **104 imports**, poisoned settings/no network/no pytest; native AES-GCM 7 typed contexts đạt. |
+  | `uv audit --locked` | Exit 0; native read-only advisory check: **49 packages**, no known vulnerabilities/adverse project statuses tại lúc chạy. |
+  | Independent read-only review | No required findings; actor/current grants/decrypt, immutable binding, begin/send/complete, replay/uncertainty/hold, SQL/downgrade và bounded history/dashboard/wiring. Reviewed snapshot `.cache/t11-review/`; root source giữ nguyên sau review. |
+  | Mutation probe, isolated source copy | Green control 1 passed; bỏ buyer SQL filter bị native ownership test bắt (1 assertion failure, zero fixture errors/skips). Copy restored, root source hashes giữ nguyên. |
+  | Final diff/docs/protected checks | `git diff --check` exit 0; **45 changed/new files** (35 Python, 10 Markdown), UTF-8/code fences và **47 local links** đạt. 104 modules khớp reviewed snapshot, 36 protected baseline files giữ nguyên, index trống. |
+
+  Native coverage gồm snapshot giá sau catalog edit, private customer/staff scope,
+  revoked/current grants, all finite/file/text/document exact payloads, source retired sau
+  publication mới, duplicate confirmation và hold cả hai lock outcomes trên **hai physical
+  connections**. Real dispatcher + typed Telegram mocks assert zero checked-out DB connections
+  qua send. Failure cases giữ primary work DELIVERED/SENT và cùng unit/resource; encrypted
+  tamper fail durably, audit/commit rollback/lost ACK/expiry và late observations không retry.
+  Upgrade/downgrade rỗng giữ cả bảy T10 finite states/payment/attempt/ciphertext/audit;
+  có resend history thì downgrade bị chặn. Cleanup xác minh **0 test schemas, 0 other client
+  connections**, label/workspace đúng rồi dừng riêng postgres-test, không xóa dev DB/volume.
+
+  **Giới hạn và Owner setup:** không cần thêm key/provider/server cho T11 local. Reuse
+  keyring + fake fixtures, không dùng live credentials/payment/messages/refunds hoặc deploy.
+  Chỉ DELIVERED được mở resend; REFUNDED direct repository-state test là **simulated contract**
+  vì persistence/refund ledger còn T13. T13 phải thêm native refund-ledger/resend acceptance;
+  không coi test hiện tại là nghiệm thu refund thực tế. Uncertain resend bị chặn tới resolver
+  T13; đây không phải exactly-once transport. T12 cần support identity/terms thật do Owner
+  chốt trước chạy thật, automated tests có thể dùng nội dung giả rõ ràng. T14 mới nghiệm thu
+  Telegram với test bot/account và BOT_TOKEN/OWNER_ID/keyring qua secure environment.
+
+  **T11 hoàn tất local; dừng trước T12 pending, cần được giao riêng.**
 
 - [ ] **T12 — Support và payment support.** Depends: T11. Spec: AO-02,03. Scope: tickets, staff assignment/scoped replies, `/paysupport`, terms/support navigation. Acceptance: đúng owner/ticket permission; lỗi paid/uncertain có support path; real terms/support identity là Owner input, tests dùng nội dung giả rõ ràng. Verify: C + D, cross-user/ticket isolation và sanitized output contracts.
 
