@@ -1,1 +1,1 @@
-SCHEMA_HEAD = "0020_external_refund_records"
+SCHEMA_HEAD = "0021_coupons"

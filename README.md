@@ -28,6 +28,10 @@ durable work; không cần invoice, pre-checkout hoặc Telegram successful_paym
 cũ được giữ lại; E3/E4 Stars lịch sử vẫn chưa đạt, không chặn T14 chức năng theo quyết định Owner
 mới. Không có nhận tiền thật hoặc deployment ở phase này.
 
+T15 thêm coupon percent/fixed **Credit** với caps/scope/expiry, price snapshot và redemption
+atomic trong checkout; refund không hoàn lượt. Admin/customer commands và bước nâng schema
+`0021_coupons`: [runbook coupon](docs/PAYMENT-V2.md#coupon-credit-t15). Stars tiếp tục PAUSED.
+
 ## Môi trường development
 
 Baseline: CPython **3.12.15**, uv/build backend **0.13.4**, Pytest **9.1.1**, Ruff **0.17.1**.

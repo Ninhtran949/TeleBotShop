@@ -2,7 +2,7 @@
 
 T02 dùng PostgreSQL **18.6**, SQLAlchemy **2.0.55** Async + asyncpg **0.32.0** và
 Alembic **1.20.0**. T03 thêm identity/access/settings và audit repositories bằng SQLAlchemy
-Core tables; không trả ORM/session ra application. Head hiện tại **`0020_external_refund_records`**;
+Core tables; không trả ORM/session ra application. Head hiện tại **`0021_coupons`**;
 `0001_runtime` giữ nguyên, `0002_identity` thêm identity/Owner/audit, `0003_access` thêm
 explicit grants, settings và confirmation. T04 thêm `0004_catalog`; T05 thêm encrypted
 inventory/actions/key verifiers; T06 thêm orders/items/invoice intents và finite reservations.
@@ -29,6 +29,16 @@ Revisions0001–0014 giữ nguyên bytes. Additive0015–0020 thêm:
 | 0018 | Credit refund actions, top-up reversals; wallet-specific order/delivery guards, original Stars guards/function text được giữ. |
 | 0019 | Reuse durable notification outbox cho WALLET_TOPUP/TOPUP_REVIEW. |
 | 0020 | Append-only manual external-refund records REQUESTED/UNCERTAIN/CONFIRMED/REJECTED. CONFIRMED cần prior top-up reversal; đây là operator evidence, app không chuyển tiền. |
+
+T15 thêm additive **0021**; revisions0001–0020 giữ nguyên bytes. `coupons` giữ code ASCII
+uppercase, integer percent/fixed Credit, expiry/caps/scope và immutable config; chỉ active
+được đổi qua authorized application service. `coupon_redemptions` lưu immutable
+order/buyer/product/coupon/base/discount/net snapshot. Một order chỉ có một redemption;
+index coupon/buyer hỗ trợ counts. Trigger khóa coupon row và bảo vệ expiry/scope/caps/math;
+deferred binding kiểm tra snapshot khớp net Credit PAID payment và audit tại commit.
+Application use case ghi redemption, payment/debit và audit cùng UoW.
+Refund không xóa redemption hoặc hoàn usage. Guard chặn update/delete/truncate history;
+downgrade0021 có coupon/history bị từ chối để forward-fix.
 
 Runtime sandbox DB tên chính xác `telebotshop_payment_v2_sandbox`, comment marker
 `telebotshop:payment-v2-sandbox:v1`; kiểm tra bằng `pg_catalog.shobj_description` vì database

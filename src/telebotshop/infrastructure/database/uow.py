@@ -6,6 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 from telebotshop.application.ports.uow import UnitOfWork
 from telebotshop.infrastructure.database.repositories.access import SqlAccessRepository
 from telebotshop.infrastructure.database.repositories.catalog import SqlCatalogRepository
+from telebotshop.infrastructure.database.repositories.coupons import SqlCouponRepository
 from telebotshop.infrastructure.database.repositories.credit_orders import SqlCreditOrderRepository
 from telebotshop.infrastructure.database.repositories.fulfillment import SqlFulfillmentRepository
 from telebotshop.infrastructure.database.repositories.history import SqlHistoryRepository
@@ -28,6 +29,7 @@ class SqlAlchemyUnitOfWork(UnitOfWork):
         self.identity = SqlIdentityRepository(session)
         self.access = SqlAccessRepository(session)
         self.catalog = SqlCatalogRepository(session)
+        self.coupons = SqlCouponRepository(session)
         self.inventory = SqlInventoryRepository(session)
         self.orders = SqlOrderRepository(session)
         self.payments = SqlPaymentRepository(session)

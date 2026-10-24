@@ -26,16 +26,18 @@ Quyết định và ranh giới sandbox ở [ADR-0006](adr/0006-payment-v2-walle
 | T13: refund và privileged reconciliation | Đã triển khai và kiểm chứng local: head `0013_refunds`, verified full-charge confirmation, encrypted decision, owned holds, primary/extra separation, durable refund receipts và positive-evidence reconciliation. Native PostgreSQL races/faults; Telegram mock. |
 | T14: core integration | PASS chức năng thay Stars bằng Payment V2 theo yêu cầu nghiệm thu mới của Owner24/10; actual Telegram Test5types/6shapes,6Credit refunds, safe key resend, support. Hậu kiểm sửa3findings về paused pre-checkout, wallet revoke race và callback ACK; fresh C614/D513/H6 pass. [Matrix và bằng chứng](plans/shop/t14-replacement-acceptance.md). Stars E3/E4 lịch sử vẫn unchecked/PAUSED; không claim provider hoặc production PASS. |
 | Payment V2 | PV2-00–08 local/simulated và Telegram Test delivery đã kiểm chứng: ledger double-entry, Bank/USDT top-up, Credit checkout/shared fulfillment, refund/reversal. Đã sửa lỗi ghép quote USDT đã đóng vào giao dịch nạp mới, thêm2regression PostgreSQL. Hosted SePay/actual USDT còn riêng; [plan](plans/shop/payment-v2.md), [runbook/setup](PAYMENT-V2.md). |
+| T15: Coupons Credit | Hoàn tất local: schema `0021_coupons`, percent/fixed integer discount, exact product/category scope, expiry/global/per-user caps; actor-bound admin/customer confirmation. Redemption/snapshot/debit/PAID/audit/READY atomic; refund chỉ hoàn net Credit, không hoàn lượt theo Owner. Fresh C663/D557/H6 pass; [spec](plans/shop/growth.md), [commands/evidence](plans/shop/implementation-plan.md#phase-4), [runbook](PAYMENT-V2.md#coupon-credit-t15). Telegram T15 mock; chưa migrate database runtime hoặc chạy coupon trên Test bot thật. |
 | CI, production image/deployment, backup/restore | Chưa triển khai hoặc kiểm chứng; release gate T18 còn riêng. |
 | BotFather/test bot | Owner có bot server chính, `getMe` đạt. Smoke giới hạn ngày 22/10: Owner xác minh bằng private challenge, polling local chạy, `/start` thật cập nhật profile; command menu 8 lệnh đọc lại khớp, menu quản trị được Telegram chấp nhận gửi. Quyền Owner/default-deny và checkout tắt được kiểm tra qua service. Owner xác nhận thấy tin chào/menu và thao tác được trên thiết bị. Stars test/gate E vẫn pending; xem mục 6 [BOTFATHER-SETUP](BOTFATHER-SETUP.md). |
 | Stars Test Server setup (lịch sử) | Polling/worker/refund dùng đúng aiogram3.31 Test API, credentials/keyring/DB tách main. Buyer2/Test Stars và actual Stars delivery/refund còn BLOCKED/PAUSED; không dùng Credit để tick các case Stars. Current Test bot + Owner session đã được dùng để nghiệm thu Credit thật, không cần login/OTP mới. Lịch sử tại [BOTFATHER-SETUP](BOTFATHER-SETUP.md); current acceptance tại matrix T14.r. |
-| Git | Branch `dev`, HEAD `198b6ed` (T13). T14 và `temp.md` đã staged bên ngoài agent trước phiên nghiệm thu; setup notes là working-tree changes. Agent không stage/commit/push/unstage/discard work. |
+| Git | T15 bắt đầu từ workspace sạch trên `dev`, HEAD `0554904`; giữ HEAD/index và private configs. Thay đổi T15 ở working tree; agent không stage/commit/push/unstage/discard work. Các mốc HEAD/index cũ trong evidence T14 là history. |
 
 Trạng thái và bằng chứng từng slice cũ nằm trong [implementation plan](plans/shop/implementation-plan.md).
 T01–T13 hoàn tất local; **T14 đã PASS nghiệm thu chức năng thay Stars** theo
 [quyết định/matrix mới](plans/shop/t14-replacement-acceptance.md). External Stars E3/E4
 giữ PAUSED/unchecked; hosted SePay/actual USDT/go-live ở [Payment V2](plans/shop/payment-v2.md)
-vẫn chưa đạt. Dừng trước T15–T18 hoặc các external gates chưa được giao/cấu hình.
+vẫn chưa đạt. **T15 Coupons Credit hoàn tất local** theo phạm vi Owner giao tiếp và policy
+refund đã chốt; Stars giữ PAUSED. Dừng trước T16–T18 hoặc external gates chưa được giao/cấu hình.
 
 ## Đọc theo nhiệm vụ
 

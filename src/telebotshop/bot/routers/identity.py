@@ -29,6 +29,9 @@ def home_keyboard(wallet_enabled: bool = False) -> InlineKeyboardMarkup:
         keyboard.inline_keyboard.insert(
             2, [InlineKeyboardButton(text="Ví của tôi", callback_data="wal:home")]
         )
+        keyboard.inline_keyboard.insert(
+            3, [InlineKeyboardButton(text="Mã giảm giá", callback_data="wal:coupon")]
+        )
     return keyboard
 
 

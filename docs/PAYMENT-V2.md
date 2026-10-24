@@ -114,6 +114,46 @@ bỏ `--allow` để revoke. ADMIN/Stars refund grant không tự có quyền t�
 Adjust/price/route/reverse/grant/cash record cần typed `CONFIRM SANDBOX`; mọi thay đổi có audit.
 Action UUID phải giữ nguyên khi retry sau lost ACK, không tạo action mới để thử lại tiền.
 
+## Coupon Credit (T15)
+
+Spec đã chuyển sang Credit trước code tại [growth](plans/shop/growth.md). Coupon không giảm
+top-up Bank/USDT và không mở Stars. Không cần provider/key mới. Bản mới yêu cầu schema
+`0021_coupons`; phiên T15 chỉ migrate database test cô lập, chưa migrate các database runtime
+trong private config. Khi được giao chạy runtime mới, nâng cấp đúng database sandbox đã
+xác minh theo quy trình migration, trước polling/worker:
+
+```powershell
+uv run --env-file .env.payment-v2 --no-sync alembic upgrade head
+```
+
+Owner hoặc ADMIN đã được cấp **Wallet PRICE** hiện có vào Quản trị → Ví / Bank / USDT →
+Quản lý coupon Credit, hoặc `/coupons`. Không dùng catalog/Stars refund grant thay quyền này.
+Lệnh dưới đây chỉ tạo preview; phải bấm Xác nhận trong10phút để lưu:
+
+```text
+/coupon_create SAVE10 PERCENT 10 2026-12-31T23:59:59Z 100 1 ALL
+/coupon_create SAVE500 FIXED 500 2026-12-31T23:59:59Z 20 1 CATEGORY:DEMO
+/coupon_state SAVE10 off
+/coupon_state SAVE10 on
+```
+
+Scope là ALL, PRODUCT:UUID hoặc CATEGORY:CODE chính xác (không ngầm gồm danh mục con).
+PERCENT1–99, FIXED là số Credit nguyên dương; không free order hoặc stacking. Config bất
+biến, code không tái sử dụng cho config khác; muốn thay rule thì tạo code mới. Danh sách có
+phân trang và nút xem chi tiết; code không được liệt kê công khai cho khách.
+
+Khách vào Mã giảm giá hoặc gửi `/coupon SKU CODE`, ví dụ `/coupon DEMO-1 SAVE10`.
+Bot hiện base/discount/net và điều khoản trước nút trả Credit. Preview không giữ lượt hoặc
+trừ ví; checkout kiểm tra lại current price/product/scope/expiry/caps. Giá đổi hoặc coupon
+không hợp lệ bị từ chối, không tự charge giá đầy đủ. Token gắn actor và hết hạn sau10phút;
+restart cần mở preview mới, chưa xác nhận thì không có financial effect.
+
+Redemption, net debit/payment, PAID, entitlement/READY và audit cùng UoW. Double-click/lost
+ACK dùng cùng action trả order cũ. Refund chỉ hoàn **Credit thực trả** và **không hoàn lượt
+coupon**, theo lựa chọn Owner24/10; checkout rollback không tiêu lượt. Stars vẫn PAUSED,
+receipt lịch sử không tác động usage/snapshot coupon. T15 Telegram transport được mock;
+chưa có actual Test bot smoke cho tính năng coupon hoặc hosted CI.
+
 ## Refund và reconciliation
 
 `/credit_refund ORDER_UUID`, dòng lý do/source, rồi xác nhận; hoặc CLI

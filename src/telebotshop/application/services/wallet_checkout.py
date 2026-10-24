@@ -2,10 +2,18 @@ from hashlib import sha256
 from uuid import UUID, uuid4
 
 from telebotshop.application.ports.uow import UnitOfWorkFactory
+from telebotshop.application.services.coupons import quote_coupon
 from telebotshop.application.services.orders import validate_uuid
 from telebotshop.application.services.wallet import wallet_operator
-from telebotshop.domain.errors import AccessDenied, CatalogNotFound, InvalidAction, OutOfStock
+from telebotshop.domain.errors import (
+    AccessDenied,
+    CatalogNotFound,
+    InvalidAction,
+    InvalidInput,
+    OutOfStock,
+)
 from telebotshop.domain.models.catalog import SaleState
+from telebotshop.domain.models.coupons import CouponQuote
 from telebotshop.domain.models.identity import validate_telegram_id
 from telebotshop.domain.models.inventory import FINITE_TYPES
 from telebotshop.domain.models.orders import RESERVATION_TTL, Order, OrderStatus, PaymentMethod
@@ -52,12 +60,16 @@ class WalletCheckoutService:
         action_id: UUID,
         expected_price: int,
         terms_version: str,
+        *,
+        coupon: CouponQuote | None = None,
     ) -> Order:
         self.available()
         validate_telegram_id(actor_id)
         validate_uuid(product_id)
         validate_uuid(action_id)
         credits(expected_price)
+        if coupon is not None and not isinstance(coupon, CouponQuote):
+            raise InvalidInput("Invalid coupon snapshot")
         if terms_version != self.terms_version:
             raise InvalidAction("Credit checkout terms changed")
         async with self.uow() as work:
@@ -71,6 +83,7 @@ class WalletCheckoutService:
                     existing.product_id != product_id
                     or existing.payment_method != PaymentMethod.WALLET_CREDIT
                     or existing.price_credits != expected_price
+                    or await work.coupons.redemption(existing.id) != coupon
                 ):
                     raise InvalidAction("Checkout action conflicts")
                 return existing
@@ -78,7 +91,17 @@ class WalletCheckoutService:
             if product is None or product.sale_state != SaleState.ACTIVE:
                 raise CatalogNotFound("Product unavailable")
             price = await work.credit_orders.price(product_id)
-            if price is None or price != expected_price:
+            if price is None:
+                raise InvalidAction("Credit price changed or unavailable")
+            if coupon is not None:
+                current = await work.coupons.get(coupon.coupon_id, for_update=True)
+                if current is None:
+                    raise InvalidAction("Coupon unavailable")
+                fresh = await quote_coupon(work, current, buyer_id, product, price)
+                if fresh != coupon:
+                    raise InvalidAction("Coupon quote changed")
+                price = fresh.total_credits
+            if price != expected_price:
                 raise InvalidAction("Credit price changed or unavailable")
             unit_id, resource = None, None
             if product.draft.product_type in FINITE_TYPES:
@@ -111,6 +134,8 @@ class WalletCheckoutService:
                 price_credits=price,
             )
             await work.orders.save(order, action_id)
+            if coupon is not None:
+                await work.coupons.redeem(order, coupon)
             if resource is not None:
                 await work.resources.bind(order, resource.id)
             entry = await work.wallet.post(

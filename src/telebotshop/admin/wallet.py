@@ -16,6 +16,7 @@ def review_keyboard():
         inline_keyboard=[
             [InlineKeyboardButton(text="Pending / fraud / đối soát", callback_data="wp:list")],
             [InlineKeyboardButton(text="Kiểm tra ledger", callback_data="wp:reconcile")],
+            [InlineKeyboardButton(text="Quản lý coupon Credit", callback_data="cp:l:0")],
             [InlineKeyboardButton(text="Quản trị", callback_data="adm:home")],
         ]
     )

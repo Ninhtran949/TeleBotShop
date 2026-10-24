@@ -11,6 +11,13 @@ Các guards Stars gốc giữ nguyên function text; triggers có WHEN Stars, c�
 deferred riêng để kiểm tra exact debit và compensating refund. Chi tiết schema/locks/rollback
 ở [spec](plans/shop/payment-v2.md) và [DATABASE](DATABASE.md#payment-v2).
 
+T15 `CouponService` quản lý immutable coupon rules bằng existing Wallet PRICE permission;
+preview không giữ lượt. `WalletCheckoutService` revalidate quote dưới buyer→product→coupon
+row locks rồi ghi redemption/base-discount-net snapshot cùng debit/PAID/work/audit trong
+một UoW. SQL deferred guard giữ exact net payment binding; refund không hoàn usage. Module
+`domain/models/coupons.py` không phụ thuộc SDK/ORM. Composition root tái sử dụng actor-bound
+NavigationStore cho admin qua hai callbacks remember/resolve, giữ admin không import bot.
+
 `application/services/{wallet,wallet_checkout,topups,topup_review,wallet_refunds,payment_reconciliation}.py`
 sở hữu transaction/quyết định; SQL repos thực hiện query và không commit.
 `infrastructure/payments/` chứa SePay HMAC/QR/read API và Binance read-only/simulated adapter;

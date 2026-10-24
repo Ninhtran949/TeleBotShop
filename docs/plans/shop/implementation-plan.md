@@ -1,10 +1,11 @@
 # Implementation plan và task ledger
 
-**Trạng thái hiện tại24/10:** T01–T13 hoàn tất local; **T14 PASS chức năng thay Stars bằng
-Payment V2** theo yêu cầu nghiệm thu mới của Owner. Fresh609 C +510 PostgreSQL +6harness;
-actual Telegram Test đủ5types/6shapes, Credit checkout/refund, safe key resend và support pass.
-[Matrix R1–R8 và giới hạn](t14-replacement-acceptance.md). Stars E3/E4 cũ vẫn PAUSED/unchecked;
-hosted SePay/USDT thật/go-live giữ riêng. T15–T18 chưa được giao tiếp trong phiên nghiệm thu này.
+**Trạng thái hiện tại24/10:** T01–T15 hoàn tất local. T14 PASS chức năng thay Stars theo
+quyết định Owner; actual Telegram Test đủ5types/6shapes, Credit checkout/refund, safe key
+resend và support được giữ tại [matrix R1–R8](t14-replacement-acceptance.md). T15 Coupons
+Credit đã qua fresh663 C +557 PostgreSQL +6harness; Telegram T15 dùng mock, chưa migrate
+database runtime hoặc chạy coupon trên Test bot thật. Stars E3/E4 vẫn PAUSED/unchecked;
+hosted SePay/USDT thật/go-live và T16–T18 giữ riêng, không tự tiếp tục.
 
 **Mốc trước nghiệm thu24/10 (lịch sử):** Stars development/external acceptance **PAUSED/BLOCKED**;
 T14 E3/E4 vẫn unchecked. Triển khai [Payment V2](payment-v2.md) với ledger/Bank/USDT/Credit
@@ -1250,7 +1251,59 @@ Check scope: **H** = hai harness commands trong PROJECT. **C** = applicable lock
 
 ## Phase 4
 
-- [ ] **T15 — Coupons.** Depends: T14. Spec: GR-01,02. Scope: coupons/redemptions + admin/customer flows và checkout integration. Acceptance: đúng scope/expiry/caps, integer price snapshot và transactional redemption; last-use race/duplicate/late payment không over-redeem. Verify: C + D, concurrency tests. Không đổi snapshot của invoice đã phát.
+- [x] **T15 — Coupons (hoàn tất local, Owner24/10/2026).** Depends: T14 functional replacement. Spec: GR-01,02 đã đổi sang Credit trước code. Scope: coupons/redemptions + admin/customer flows và atomic WalletCheckoutService integration; Stars giữ PAUSED. Refund policy Owner chọn: không hoàn lượt, chỉ hoàn net Credit; rollback không tiêu lượt.
+  - [x] **T15.a — Coupon rules, persistence và management.** Integer percent/fixed discount, UTC expiry, immutable config, global/per-user caps và exact product/category scope; additive0021, explicit Wallet PRICE permission, audited create/enable/disable. Files: domain/application coupon module+port, database model/repository/UoW/migration/schema, focused unit/PG tests.
+  - [x] **T15.b — Credit checkout/customer flow.** Preview + actor-bound confirmation; redemption/snapshot/debit/PAID/audit/READY atomic, existing action idempotent. Files: WalletCheckoutService, wallet/admin routers, bootstrap/menu, focused Telegram contracts và native last-use/double-click/rollback/refund tests.
+  - [x] **T15.c — Regressions và handoff.** C + full native D + H, upgrade-preservation/DB tampering, architecture/lint/format/lock/build/wheel; cập nhật PROJECT/DB/runbook với exact evidence và external limits. Không commit/push/deploy hoặc làm T16.
+
+  **Evidence24/10:** C663/D557/H6 đều pass, không fail/error/skip. Thêm49unit và44PG cases.
+  Native PG18.6: hai products/buyers tranh lượt cuối dưới hai physical connections; per-user
+  cap/double-click; funds/payment/audit/commit rollback; lost commit ACK; net refund giữ usage;
+  current scope/expiry/price; DB cap bypass/immutable history/missing audit; late Stars receipt.
+  Upgrade0020→0021→0020(empty)→0021 giữ mọi predecessor row/function và metadata khớp model;
+  có coupon/history thì downgrade bị chặn. Telegram mock kiểm tra admin create/detail/state,
+  actor-bound callbacks, repeated edits MESSAGE_NOT_MODIFIED và net purchase không Stars API.
+
+  TDD artifacts trong `.cache/t15-20261024/`: domain/management red (module chưa có),
+  checkout-red3failed (chưa có coupon parameter), bot/detail-red fail trước wiring/handler,
+  sau đó green. Mutation cố ý đổi boundary usage>=cap thành > bị unit test bắt; khôi phục
+  nguyên bytes và33domain cases pass lại. Fresh full C/D là kết quả sau các sửa lỗi ban đầu,
+  không dùng lần chạy đỏ hoặc typo test column thay cho kết quả cuối.
+
+  ```powershell
+  .venv/Scripts/python.exe -m pytest tests/unit tests/contract tests/architecture -q --tb=short -o cache_dir=.cache/t15-20261024/pytest-c --junitxml=.cache/t15-20261024/c.xml
+  .venv/Scripts/python.exe -X utf8 .cache/t15-20261024/run-d.py
+  .venv/Scripts/python.exe -m ruff check .
+  .venv/Scripts/python.exe -m ruff format --check .
+  .venv/Scripts/python.exe scripts/check_architecture.py
+  .venv/Scripts/python.exe scripts/verify_harness.py
+  .venv/Scripts/python.exe -B -m unittest discover -s tests -p test_harness.py -v
+  $env:UV_CACHE_DIR=Join-Path (Get-Location) '.cache\uv'
+  .tools/uv/Scripts/uv.exe lock --check
+  .tools/uv/Scripts/uv.exe sync --locked --no-build --inexact --offline
+  .tools/uv/Scripts/uv.exe build --no-sources
+  .tools/uv/Scripts/uv.exe export --locked --no-dev --no-emit-project --offline --quiet --output-file .cache/t15-20261024/runtime.txt
+  .tools/uv/Scripts/uv.exe venv --python .venv/Scripts/python.exe .cache/t15-20261024/wheel-env --offline
+  .tools/uv/Scripts/uv.exe pip install --python .cache/t15-20261024/wheel-env/Scripts/python.exe --no-deps --offline -r .cache/t15-20261024/runtime.txt dist/telebotshop-0.1.0-py3-none-any.whl
+  .cache/t15-20261024/wheel-env/Scripts/python.exe -I .cache/t15-20261024/wheel-smoke.py
+  .venv/Scripts/python.exe -X utf8 .cache/t15-20261024/verify.py
+  ```
+
+  `run-d.py` tự export APP_ENV=test và exact isolated DB55433, collect đủ557cases, chia
+  186/186/185 theo file; `d-final-commands.json` giữ exact commands. `c.xml` và3XML PostgreSQL
+  là actual result sets; wheel khớp162source modules, import161modules từ isolated prefix
+  với37locked runtime deps, không pytest/Telethon/network, poisoned settings và native
+  asyncpg/AES-GCM pass. Manifest/lock và versions giữ nguyên; không chạy lại dependency audit
+  vì không đổi dependencies, không release. Không hosted CI, actual Telegram coupon smoke,
+  migration trên DB runtime/private config hoặc external provider validation. Không cần
+  key/provider mới; trước runtime mới cần migrate đúng sandbox tới0021 theo runbook.
+
+  `verified-results.json` đối chiếu JUnit với full collection, xác minh HEAD/index, private
+  configs, revisions0001–0020, ADRs, six skills và manifest/lock giữ nguyên. Postflight không
+  còn schema test/client khác; test container55433 được trả về stopped ban đầu, không xóa
+  volumes hoặc chạm DB runtime. Self-review correctness/locking/rollback/auth/input handling/
+  architecture không có finding bổ sung trong scope; không phải independent review hoặc
+  hosted CI. Dừng ở T15, không tự bắt đầu T16.
 
 - [ ] **T16 — Referral.** Depends: T15. Spec: GR-03. Scope: referral deep links/attribution/stats. Acceptance: new-user attribution immutable, không self-referral, paid/refunded reporting đúng; không commission payout. Verify: C + D, concurrent/replayed attribution và refund-adjusted stats.
 

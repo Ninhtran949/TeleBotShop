@@ -4,6 +4,7 @@ from typing import Protocol
 
 from telebotshop.application.ports.access import AccessRepository
 from telebotshop.application.ports.catalog import CatalogRepository
+from telebotshop.application.ports.coupons import CouponRepository
 from telebotshop.application.ports.credit_orders import CreditOrderRepository
 from telebotshop.application.ports.fulfillment import FulfillmentRepository
 from telebotshop.application.ports.history import HistoryRepository
@@ -24,6 +25,7 @@ class UnitOfWork(Protocol):
     identity: IdentityRepository
     access: AccessRepository
     catalog: CatalogRepository
+    coupons: CouponRepository
     inventory: InventoryRepository
     orders: OrderRepository
     payments: PaymentRepository

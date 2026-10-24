@@ -9,11 +9,13 @@ from aiogram.exceptions import TelegramBadRequest
 from aiogram.filters import Command, CommandObject
 from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message
 
+from telebotshop.application.services.coupons import CouponService
 from telebotshop.application.services.topups import TopUpService
 from telebotshop.application.services.wallet import WalletLedgerService
 from telebotshop.application.services.wallet_checkout import WalletCheckoutService
 from telebotshop.bot.keyboards.catalog import NavigationStore
 from telebotshop.domain.errors import InvalidInput
+from telebotshop.domain.models.coupons import CouponQuote
 from telebotshop.domain.models.topups import TopUpIntent
 
 
@@ -23,9 +25,10 @@ class CreditChoice:
     action_id: UUID
     price: int
     terms: str
+    coupon: CouponQuote | None = None
 
 
-def wallet_keyboard(*, bank_enabled=True, usdt_enabled=True):
+def wallet_keyboard(*, bank_enabled=True, usdt_enabled=True, coupons_enabled=False):
     topup_buttons = []
     if bank_enabled:
         topup_buttons.append(InlineKeyboardButton(text="Nạp Bank / QR", callback_data="wal:bank"))
@@ -36,6 +39,11 @@ def wallet_keyboard(*, bank_enabled=True, usdt_enabled=True):
     return InlineKeyboardMarkup(
         inline_keyboard=([topup_buttons] if topup_buttons else [])
         + [
+            *(
+                [[InlineKeyboardButton(text="Mã giảm giá", callback_data="wal:coupon")]]
+                if coupons_enabled
+                else []
+            ),
             [
                 InlineKeyboardButton(text="Lịch sử ví", callback_data="wal:history"),
                 InlineKeyboardButton(text="Lịch sử nạp", callback_data="wal:topups"),
@@ -55,6 +63,7 @@ def create_wallet_router(
     topups: TopUpService,
     qr_link: Callable[[TopUpIntent], str] | None = None,
     *,
+    coupons: CouponService | None = None,
     bank_enabled=True,
     usdt_enabled=True,
 ):
@@ -62,7 +71,61 @@ def create_wallet_router(
     choices = NavigationStore[CreditChoice]()
 
     def keyboard():
-        return wallet_keyboard(bank_enabled=bank_enabled, usdt_enabled=usdt_enabled)
+        return wallet_keyboard(
+            bank_enabled=bank_enabled,
+            usdt_enabled=usdt_enabled,
+            coupons_enabled=coupons is not None,
+        )
+
+    def confirmation(actor, product_id, action_id, price, coupon=None):
+        token = choices.remember(
+            actor, CreditChoice(product_id, action_id, price, checkout.terms_version, coupon)
+        )
+        text = f"Xác nhận mua bằng Credit\nGiá: {price:,} credit\n"
+        if coupon is not None:
+            text = (
+                f"Xác nhận mua bằng Credit\nMã: {coupon.code}\n"
+                f"Giá gốc: {coupon.base_credits:,} credit\n"
+                f"Giảm: {coupon.discount_credits:,} credit\nCần trả: {price:,} credit\n"
+                "Refund chỉ hoàn Credit thực trả, không hoàn lượt coupon.\n"
+            )
+        text += "Bạn đồng ý điều khoản hiện hành khi xác nhận. Xem /terms trước khi mua."
+        return text, InlineKeyboardMarkup(
+            inline_keyboard=[
+                [
+                    InlineKeyboardButton(
+                        text=f"Đồng ý — trả {price:,} credit", callback_data="wc:b:" + token
+                    )
+                ],
+                *(
+                    [[InlineKeyboardButton(text="Nhập mã giảm giá", callback_data="wal:coupon")]]
+                    if coupons is not None
+                    else []
+                ),
+                [InlineKeyboardButton(text="Hủy", callback_data="home")],
+            ]
+        )
+
+    async def edit_view(query, text, markup):
+        await query.answer()
+        try:
+            await query.message.edit_text(text[:3900], reply_markup=markup, parse_mode=None)
+        except TelegramBadRequest as error:
+            if "message is not modified" not in error.message.lower():
+                raise
+
+    @router.message(Command("coupon"))
+    async def apply_coupon(message: Message, command: CommandObject):
+        parts = (command.args or "").split()
+        if message.from_user is None:
+            return
+        if coupons is None or len(parts) != 2:
+            raise InvalidInput("Use /coupon SKU CODE")
+        actor = message.from_user.id
+        quote = await coupons.preview(actor, parts[0], parts[1])
+        action = uuid5(NAMESPACE_URL, f"coupon-checkout:{actor}:{message.message_id}")
+        text, markup = confirmation(actor, quote.product_id, action, quote.total_credits, quote)
+        await message.answer(text, reply_markup=markup, parse_mode=None)
 
     async def overview(actor):
         balance = await wallet.balance(actor)
@@ -160,14 +223,15 @@ def create_wallet_router(
                 f"{entry.id} · {entry.rail} · {entry.credit_amount:,} credit · {entry.state}"
                 for entry in entries
             )
+        elif query.data == "wal:coupon" and coupons is not None:
+            text = (
+                "Mã giảm giá Credit\nGửi /coupon SKU MÃ\nVí dụ: /coupon DEMO-1 SAVE10\n"
+                "SKU nằm trong chi tiết sản phẩm. Xem giá gốc, số giảm và số Credit cần trả "
+                "trước khi xác nhận. Refund không hoàn lượt coupon."
+            )
         else:
             raise InvalidInput("Invalid wallet navigation")
-        await query.answer()
-        try:
-            await query.message.edit_text(text[:3900], reply_markup=keyboard(), parse_mode=None)
-        except TelegramBadRequest as error:
-            if "message is not modified" not in error.message.lower():
-                raise
+        await edit_view(query, text, keyboard())
 
     @router.callback_query(F.data.startswith("wc:"))
     async def purchase(query: CallbackQuery):
@@ -185,30 +249,19 @@ def create_wallet_router(
             price = await checkout.price(product_id)
             if price is None:
                 raise InvalidInput("Credit price unavailable")
-            token = choices.remember(
-                actor, CreditChoice(product_id, uuid4(), price, checkout.terms_version)
-            )
-            text = (
-                f"Xác nhận mua bằng Credit\nGiá: {price:,} credit\n"
-                "Bạn đồng ý điều khoản hiện hành khi xác nhận. Xem /terms trước khi mua."
-            )
-            reply_keyboard = InlineKeyboardMarkup(
-                inline_keyboard=[
-                    [
-                        InlineKeyboardButton(
-                            text=f"Đồng ý — trả {price:,} credit", callback_data="wc:b:" + token
-                        )
-                    ],
-                    [InlineKeyboardButton(text="Hủy", callback_data="home")],
-                ]
-            )
+            text, reply_keyboard = confirmation(actor, product_id, uuid4(), price)
         elif parts[1] == "b":
             choice = choices.resolve(actor, parts[2])
             if choice is None:
                 await query.answer("Phiên mua hết hạn. Mở lại sản phẩm.", show_alert=True)
                 return
             order = await checkout.buy(
-                actor, choice.product_id, choice.action_id, choice.price, choice.terms
+                actor,
+                choice.product_id,
+                choice.action_id,
+                choice.price,
+                choice.terms,
+                coupon=choice.coupon,
             )
             text = (
                 f"Đã thanh toán bằng Credit\nĐơn: {order.id}\nTrạng thái: {order.status}\n"
@@ -217,7 +270,6 @@ def create_wallet_router(
             reply_keyboard = keyboard()
         else:
             raise InvalidInput("Invalid credit checkout")
-        await query.message.edit_text(text, reply_markup=reply_keyboard, parse_mode=None)
-        await query.answer()
+        await edit_view(query, text, reply_keyboard)
 
     return router

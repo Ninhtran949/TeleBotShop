@@ -19,6 +19,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import create_async_engine
 
 from telebotshop.admin.catalog import create_catalog_admin_router
+from telebotshop.admin.coupons import CouponCommand, create_coupon_admin_router
 from telebotshop.admin.identity import create_admin_router
 from telebotshop.admin.inventory import create_inventory_admin_router
 from telebotshop.admin.manual import create_manual_admin_router
@@ -33,6 +34,7 @@ from telebotshop.application.ports.uow import UnitOfWorkFactory
 from telebotshop.application.services.access import AccessService
 from telebotshop.application.services.catalog import CatalogService
 from telebotshop.application.services.checkout import CheckoutService
+from telebotshop.application.services.coupons import CouponService
 from telebotshop.application.services.fulfillment import FulfillmentService
 from telebotshop.application.services.history import HistoryService
 from telebotshop.application.services.identity import IdentityService
@@ -52,6 +54,7 @@ from telebotshop.application.services.topups import TopUpService
 from telebotshop.application.services.wallet import WalletLedgerService
 from telebotshop.application.services.wallet_checkout import WalletCheckoutService
 from telebotshop.application.services.wallet_refunds import WalletRefundService
+from telebotshop.bot.keyboards.catalog import NavigationStore
 from telebotshop.bot.routers.catalog import create_catalog_router
 from telebotshop.bot.routers.checkout import create_checkout_router
 from telebotshop.bot.routers.identity import create_customer_router
@@ -235,12 +238,22 @@ def create_dispatcher(
     )
     dispatcher.include_router(create_checkout_router(checkout))
     if wallet_checkout is not None and wallet_ledger is not None and topups is not None:
+        coupons = CouponService(wallet_checkout.uow)
+        coupon_navigation = NavigationStore[CouponCommand]()
+        dispatcher.include_router(
+            create_coupon_admin_router(
+                coupons,
+                coupon_navigation.remember,
+                coupon_navigation.resolve,
+            )
+        )
         dispatcher.include_router(
             create_wallet_router(
                 wallet_ledger,
                 wallet_checkout,
                 topups,
                 qr_link,
+                coupons=coupons,
                 bank_enabled=bank_enabled,
                 usdt_enabled=usdt_enabled,
             )
