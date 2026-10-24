@@ -30,9 +30,14 @@ dev = [
     "pytest-asyncio==1.4.0",
     "ruff==0.17.1",
 ]
+telegram-e2e = [
+    "pyaes==1.6.1",
+    "telethon==1.45.0",
+]
 
 [tool.uv]
 required-version = "==0.13.4"
+build-constraint-dependencies = ["setuptools==80.9.0"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests/unit", "tests/contract", "tests/architecture"]

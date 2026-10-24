@@ -196,6 +196,12 @@ class Product:
     image_file_id: str | None = None
 
 
+@dataclass(frozen=True)
+class Availability:
+    available: int | None
+    ready: bool
+
+
 @dataclass(frozen=True, repr=False)
 class Page[T]:
     items: tuple[T, ...]

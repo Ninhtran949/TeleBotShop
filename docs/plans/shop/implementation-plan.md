@@ -1,6 +1,17 @@
 # Implementation plan và task ledger
 
-Status: **T01–T13 hoàn tất local; T14–T18 pending**. Owner yêu cầu continue sau T12. Branch `dev`, HEAD `6c9b25f` (T12) được cập nhật bên ngoài agent trong T13; index hiện trống, temp.md untracked giữ nguyên bytes. Baseline T13 có HEAD `d4e7bdd` và staged T12/temp; agent không stage/unstage/commit/push/discard work.
+**Trạng thái hiện tại24/10:** T01–T13 hoàn tất local; **T14 PASS chức năng thay Stars bằng
+Payment V2** theo yêu cầu nghiệm thu mới của Owner. Fresh609 C +510 PostgreSQL +6harness;
+actual Telegram Test đủ5types/6shapes, Credit checkout/refund, safe key resend và support pass.
+[Matrix R1–R8 và giới hạn](t14-replacement-acceptance.md). Stars E3/E4 cũ vẫn PAUSED/unchecked;
+hosted SePay/USDT thật/go-live giữ riêng. T15–T18 chưa được giao tiếp trong phiên nghiệm thu này.
+
+**Mốc trước nghiệm thu24/10 (lịch sử):** Stars development/external acceptance **PAUSED/BLOCKED**;
+T14 E3/E4 vẫn unchecked. Triển khai [Payment V2](payment-v2.md) với ledger/Bank/USDT/Credit
+và worker cũ; bằng chứng độc lập tại [runbook](../../PAYMENT-V2.md). Status paragraph dưới đây
+là mốc Stars trước quyết định pause, không phải lệnh tiếp tục nghiệm thu hoặc T15.
+
+Status: **T01–T13 hoàn tất local; T14.a–d hoàn tất local, T14 cha pending E; T15–T18 pending**. Phiên khắc phục native23/10: asyncpg import đạt trước/sau reinstall đúng locked wheel, SAC policy vẫn bật. Polling/worker Test Server và Owner/keyring bootstrap đã chạy; C496/D446/H6 đạt lại. Catalog giả đã sẵn sàng; Stars/checkout/delivery/refund và hai-buyer E chưa nghiệm thu, Owner đang chuẩn bị tài khoản Test Server thứ hai. Branch `dev`, HEAD `198b6ed` (T13); T14/temp.md staged bên ngoài agent trước phiên nghiệm thu; index được giữ nguyên. Agent không stage/unstage/commit/push/discard work.
 
 ## Cách nhận và bàn giao task
 
@@ -959,7 +970,283 @@ Check scope: **H** = hai harness commands trong PROJECT. **C** = applicable lock
 
   **T13 hoàn tất local; dừng trước T14 pending, cần được giao riêng.**
 
-- [ ] **T14 — Core integration và Telegram test acceptance.** Depends: T13. Scope: complete customer/admin navigation/contracts, operational alerts, BotFather/test-webhook setup instructions và end-to-end evidence. Acceptance: đủ năm types và customer/admin menus thuộc core hoạt động trên DB thật; test Stars checkout/delivery/refund được quan sát; không Critical/High còn mở trong core. Verify: C + D + E theo matrix dưới; thiếu external credentials/setup thì ghi gate chưa verify và không tick task done. Không cần credentials để hoàn tất các automated tests độc lập.
+- [x] **T14 — Core integration, nghiệm thu chức năng Payment V2 thay Stars.** Depends: T13.
+  Owner yêu cầu cho PASS nếu logic đã thay Stars được. Verify: fresh C609 + D510 + H6,
+  actual Telegram Test Credit checkout/delivery/refund cho5types/6shapes, safe resend/support,
+  không Critical/High còn mở trong scope chức năng. PASS theo [R1–R8](t14-replacement-acceptance.md).
+  Không yêu cầu Test Stars để chạy Credit; không đánh dấu provider/production/Stars chưa chạy là PASS.
+
+  **AC Stars gốc giữ làm lịch sử PAUSED:** complete customer/admin navigation/contracts,
+  operational alerts, BotFather/test-webhook setup và end-to-end evidence; actual Stars
+  checkout/delivery/refund + hai Test users trước khi đóng phạm vi Stars. Các checkbox E3/E4
+  dưới đây vẫn unchecked. Quy tắc chờ E của baseline Stars không chặn mốc chức năng Owner
+  vừa giao nghiệm thu bằng Payment V2; xem quyết định và bằng chứng R thay thế, không suy kết quả.
+
+  Owner giao continue; thực hiện local tới mức reviewable, giữ T13/temp/index. Không chạy
+  Telegram/account/payment/refund thật hoặc deploy từ authorization code. Scope các lát:
+
+  - [x] **T14.a — Public checkout.** Public availability đúng finite stock/nonfinite source,
+    Buy→own durable order/price snapshot→terms confirmation→existing Stars invoice service,
+    status/reopen/cancel/support navigation. Current owner/state/price/reservation vẫn ở
+    use cases T06–T13; duplicate click không tạo invoice/allocation khác. Terms unavailable
+    không nhận public checkout; accepted public terms digest lưu audit, không invented policy.
+  - [x] **T14.b — Test transport và authenticated webhook.** Explicit Telegram test/main
+    endpoint setting (APP_ENV=test không tự đổi server); dùng installed SDK constants,
+    shared runtime composition, bounded authenticated webhook/ack-after-financial-commit,
+    production HTTP health giữ độc lập. Không set/delete webhook hoặc gọi Bot API thật.
+  - [x] **T14.c — Operational notifications.** Durable bounded metadata-only discovery/
+    intents cho paid-attention/uncertain/manual/backlog/low stock và support replies;
+    current recipient scope/grant trước send, no network trong UoW, no blind uncertain
+    retry, plain text/no secrets. Reuse worker lifecycle, không thêm service/dependency.
+  - [x] **T14.d — Core acceptance và handoff.** Native PostgreSQL+dispatcher đủ năm types,
+    checkout/payment/delivery/refund/support/admin, faults/authorization/races/migration;
+    C + D + H, review/mutation/build/runtime/audit, docs/BOTFATHER-SETUP.md và evidence
+    checklist. Owner setup bot/account/test env được hướng dẫn; gate E này thuộc Stars gốc.
+
+  - [x] **T14.r — Payment V2 replacement acceptance, Owner24/10.** Bank signed-local và USDT
+    simulated intents → wallet → public Buy Credit → atomic payment/allocation/work → real
+    Test Bot delivery cho KEY/LICENSE/FILE/TEXT/DOC/MANUAL. User-side text/file bytes được
+    kiểm tra;6Credit refunds,6separate reversals,1safe key resend và support thread pass.
+    Zero Stars API/production effects. Sửa lỗi closed USDT quotes gây NO_UNIQUE_INTENT cho
+    lần nạp tiếp theo;2regression fail→pass, full D510pass trên source đã sửa. Không replay
+    checkout/primary delivery sau observation error; resume từ database/actual messages.
+    Matrix, commands, source/evidence và external gates: [nghiệm thu](t14-replacement-acceptance.md).
+
+  Threat notes: forged product/action/price/order callbacks, stale/absent terms, IDOR,
+  last-key concurrency, leaked Telegram endpoints/secrets, fake/oversized/duplicate webhook,
+  dropped financial ack, revoked/assigned notification recipients và ambiguous sends.
+  Không mở growth/coupons/marketing T15–T17 hoặc production release/restore T18.
+
+  **Tiếp tục nghiệm thu bằng API (Owner giao 23/10/2026):** rà từng case E, dùng
+  aiogram/Bot API hiện có và user-client Telethon test-only thay thao tác desktop thường
+  xuyên. Không đổi application runtime hoặc phiên bản dependency runtime hiện có.
+  - [x] E1: xác minh lại Test bot, database marker/head và trạng thái đơn/payment thực tế;
+    sửa checkpoint cũ nếu đã có invoice hoặc callback mới.
+  - [x] E2: optional locked dependency group, client/session Test Server riêng, preflight
+    fail-closed, secret-safe evidence và tests cho safety boundaries; Owner tự login.
+  - [ ] E3: chạy navigation, năm types (cả reusable text/document), actual Test Stars
+    receipt/delivery, manual completion, support/reply và refund qua API.
+  - [ ] E4: chạy hai user độc lập cho IDOR/quyền/tranh kho; restart/uncertain recovery,
+    rà evidence/review và chỉ tick T14 cha khi toàn bộ case E đạt.
+  Thiếu api_id/api_hash/session hoặc user thứ hai là external setup blocker, không được
+  thay bằng receipt giả, sửa ledger, user main hoặc kết quả mocked C/D.
+
+  Checkpoint CLI: Telethon1.45.0/pyaes1.6.1/rsa4.9.1/pyasn1 0.6.4 ở optional group;
+  0 runtime version đổi. Guards73 + C569/26.95s đạt; H6 và D core6/12.71s đã ghi ở checkpoint
+  CLI trước; D446 cũ không
+  gọi là fresh run. Lock/architecture/audit/build/artifact privacy PASS. Audit0 known CVE,
+  rsa archived giới hạn test-only. API credentials đã có local; Owner login actual PASS
+  lúc14:48:42Z ngày23/10.22 navigation cases và support Owner-own-thread PASS. Hai unpaid
+  orders đã EXPIRED qua existing use case; thêm1 unpaid probe reserve/stock0/cancel PASS,
+  tổng3 EXPIRED orders, DB0 payments/fulfillments. Stale callback bị Telegram DataInvalid,
+  probe exit1 tại duplicate UI assertion; concurrent duplicate vẫn chưa nghiệm thu. E2 verified; E3/E4
+  còn BLOCKED: wallet Test0 Stars, native Test top-up merchant izpremiumbot trả
+  BOT_PRECHECKOUT_TIMEOUT; Buyer2 fixed public Test codes trả PhoneCodeInvalidError trước
+  signup dù Owner đã cho phép tạo một FAKE account. Không xoay thêm số hoặc retry payment.
+  Ba payment/top-up fences ATTEMPTED giữ nguyên. Guard expired-order/SKU chống tạo purchase
+  khác để vượt fence:2 regressions RED/GREEN, actual DB read-only guard PASS.73 tooling
+  tests PASS khi chặn SDK import. Support-pair có7 regressions và mutation bắt leak-body guard;
+  actual command dừng ở Buyer2 chưa authorized trước mọi message/ticket. Không claim cross-user
+  support PASS; DB vẫn1 ticket/0 payments. Commands/từng criterion/setup tại mục5/9 BOTFATHER-SETUP.
+
+  **Rà lại blocker24/10/2026:** current worktree/index đã dùng aiogram3.31 TEST constants
+  qua create_bot cho polling/worker/refund; HEAD T13 cũ còn Bot(token), không nhầm hai snapshot.
+  Actual Test getMe/endpoint/marker/head PASS, credentials/keyrings/DB main/test tách biệt.
+  Fresh139 contract+endpoint tests/9.95s và full D446/718.66s PASS trên PostgreSQL18.6 thật,
+  không skips; Telegram/payment/refund vẫn mocked. Disposable DB postflight sạch và container
+  đã stop lại. Buyer2 headless giữ đúng approved fixture:1 code request, fixed code lengths5/6
+  đều PhoneCodeInvalidError trước signup; không có account tạo được, Owner chưa có Test user
+  thứ hai. Official docs hỗ trợ Stars payment test; actual read-only có Test top-up form,
+  wallet0, chưa chứng minh nạp/cấp miễn phí và không submit tài chính lượt này. Ba effect fences
+  giữ nguyên. Payment/fulfillment/refund automated PASS, external BLOCKED; E3/E4 và T14 cha
+  vẫn unchecked. Lệnh/kết quả/nguồn và điều kiện còn thiếu tại mục10 BOTFATHER-SETUP.
+
+  Login đầu lỗi ConnectionNotInited trước code; read-only Test RPC probe đạt, chưa authorized.
+  Prompt chặn event loop và phone input invalid đã được regression tests tái hiện/sửa.
+  Lần sau đã tới SignInRequest, Telegram trả PhoneCodeInvalidError. CLI đọc riêng số Owner
+  từ Phone_Test_Server local; tối đa3 lần Owner sửa code/cùng yêu cầu, không auto resend mã;
+  2FA nhập ẩn chỉ khi server yêu cầu. Owner đã nhập code local và login PASS; không dùng mã từ chat.
+  Sau đó ConnectionNotInited tái hiện ở GetUsers trước gửi code. Read-only initialization
+  theo SDK metadata đã thêm sau prompt, regression RED/GREEN và actual init/GetConfig PASS;
+  nguyên nhân server mất init còn chưa rõ. Actual Owner authenticated và được xác minh đúng
+  ID/Test Server. Local_password được Owner xác nhận là Desktop lock, không dùng.
+  Runtime fingerprint đã refresh sau khi proof SHA256 tái tạo original config khi bỏ đúng
+  metadata Owner bổ sung; giữ nguyên runtime fields và guard. Review mutation guard đạt;
+  Git working diff check0, full HEAD diff check2 có whitespace preexisting trong migration0014
+  và Markdown hard breaks temp.md, hai file giữ bytes nguyên.
+
+  **Local implementation T14 (2026-10-22):** checkout dùng OrderService/InvoiceService
+  hiện có, Buy action gắn buyer/product, price snapshot và terms SHA-256 audit. Finite
+  availability đọc AVAILABLE count; nonfinite đọc current source metadata, invoice recheck
+  pinned entitlement. Reopen/cancel/status/support có current ownership; no blind invoice
+  resend. Review tìm ra finite reservation guard chặn nonfinite invoice; bốn source shapes
+  RED trước fix, GREEN sau khi guard kiểm tra đúng finite unit/nonfinite pinned resource.
+
+  `TELEGRAM_ENVIRONMENT=main|test` chọn SDK constants tường minh cho ingress/worker/refund,
+  độc lập APP_ENV. Shared runtime_dispatcher cho polling/webhook; HTTP adapter không import
+  SDK. Secret trước body, đúng một header, JSON unique fields, 256KiB cả chunked, stream2s/
+  dispatch20s/32slots, financial commit trước 200 và exception503. Không tự set/delete webhook.
+
+  Durable `notifications` metadata-only ở migration **0014_notifications**, không sửa
+  revisions 0001–0013. Owner alerts về payment review, invoice uncertain, paid/delivery
+  attention, manual, backlog>5m, low-stock/ngày UTC và refund uncertain; latest OPEN ticket
+  reply gửi đúng customer, latest customer post báo Owner. Discover 10/loại/tổng100 mỗi10s,
+  SKIP LOCKED + current recipient/source check + commit SENDING trước API; no network trong
+  UoW, completion riêng. No automatic retry cho FAILED/UNCERTAIN, late observation không
+  reset. Reuse worker; lỗi notification không chặn paid work. Staff theo dõi existing inbox,
+  chưa có alert retry UI. Khách hàng menu/current orders.read lookup reuse history buyer
+  filter/30ngày/5trang; không mở quyền đọc secrets hoặc username lookup.
+
+  Files gồm application checkout/notification/history/invoice services và ports, typed domain,
+  SQL repositories/UoW/schema/migration/env, Telegram/catalog/orders/checkout/admin routers,
+  notification/webhook SDK adapters, API webhook/bootstrap/config/worker; callers/fixtures
+  tương ứng và focused unit/contract/native tests. `.env.example`, README, PROJECT,
+  ARCHITECTURE/CONVENTIONS/DATABASE/SECURITY, ba capability contracts và guide
+  [BOTFATHER-SETUP](../../BOTFATHER-SETUP.md) được cập nhật cùng slice.
+
+  **Evidence hoàn tất local:** CPython3.12.15, uv0.13.4, Pytest9.1.1, Ruff0.17.1;
+  PostgreSQL18.6 thật qua isolated allowlist/marker/per-test schema, Telegram SDK mock.
+  Không SQLite, disable rule, bỏ check hoặc invented external results. Các command PASS exit0:
+
+  | Command / check | Kết quả |
+  | --- | --- |
+  | `uv lock --check`; `uv sync --locked --no-build` | PASS; 50 resolved, 49 installed, manifest/lock không đổi. |
+  | `uv run --no-sync ruff check .`; `uv run --no-sync ruff format --check .` | PASS; 308 Python files formatted. |
+  | `uv run --no-sync pytest tests/unit tests/contract tests/architecture --junitxml=.cache/t14-c-final.xml -q` | **496 passed**, 16.28s. |
+  | `uv run --no-sync python scripts/check_architecture.py` | PASS import matrix; SDK parser ở infrastructure. |
+  | `uv run --no-sync pytest tests/integration --junitxml=.cache/t14-d-final.xml -q` | **446 passed**, 441.12s, không skip/error/failure. |
+  | Native shared-dispatcher core `tests/integration/test_core_shop.py` | **6 passed**, 19.03s: five types và reusable text/document. Buy→terms→real invoice intent→approval→receipt replay→typed worker/manual→history/customer lookup/support notice→one refund; giữ allocation/source và không network trong transaction. |
+  | Focused notifications source/fault/race/migration tests | PASS: current recipients/latest reply/restock/revocation, two physical workers, precommit/lost ACK begin/complete, late observation/identity tamper, all financial kinds, exact predecessor rows/functions/no drift/downgrade refusal. |
+  | `uv build --no-sources` | PASS wheel + sdist; cache warning được kiểm tra bằng archive inspection. |
+  | Fresh isolated wheel/runtime `.cache/t14-package-check.py` | PASS 129 modules khớp source hash; wheel/sdist sạch .cache/.tools/tests/.env/temp; packaged README khớp. Runtime-only locked deps, `pip check`, Python `-I`, poisoned config kể cả endpoint/secret, network blocked/no pytest; AES-GCM 9 typed contexts. |
+  | `uv audit --locked` | Sandbox socket10013; read-only OSV escalation được duyệt, exit0: **49 packages**, no known vulnerabilities/adverse project statuses. Không force upgrade. |
+  | `python scripts/verify_harness.py`; `python -B -m unittest discover -s tests -p test_harness.py -v` | PASS six-skill integrity; **6 tests OK**. |
+  | Isolated mutation `.cache/t14-mutation-check.py` | Terms mismatch guard đảo `!=`→`==`: control1pass, mutant1failure, errors/skips0; copy isolated/import path asserted, root source giữ nguyên. |
+  | Guide snippet static validation | 5 PowerShell blocks parse UTF-8 và 2 embedded Python snippets compile; không execute bot/setup snippets. |
+
+  Full D lượt đầu: **443passed/3failed**, cả ba là T13 downgrade fixture head assertion
+  còn hardcoded0013 dù fixture đã upgradehead0014. Giữ expected DBAPIError, assert rollback
+  đúng SCHEMA_HEAD và thêm check notifications vẫn tồn tại; focused3cases **3passed/11.19s**.
+  Không sửa migrations cũ hoặc bỏ downgrade/refund-history guard để pass.
+
+  Read-only independent review từng frozen slice và final snapshot: không Critical/Required
+  còn mở. Fix Required nonfinite invoice guard; Optional webhook chunked/duplicate-header/
+  stream+dispatch-timeout/saturation-slot-release coverage đã thêm và13contractcases pass.
+  Final customer scope và test-only migration assertion được review lại. Owner chưa có bot/
+  account test, yêu cầu hướng dẫn; guide có secure local config/keys/terms, polling-first
+  không cần hosted server, optional HTTPS webhook và checklist evidence E còn PENDING.
+
+  Final preservation/document audit: **73 changed/new files** so với baseline T14, gồm
+  **61 Python**, **11 Markdown** và `.env.example`; 46 protected baseline files và user
+  temp.md giữ nguyên bytes. Index vẫn trống/HEAD198b6ed, không stage/unstage/commit/push.
+  Frozen review khớp 129source/138test/15migration modules. UTF-8/fences/local links và
+  task/child checkboxes được kiểm tra; plain `git diff --check` pass (LF→CRLF warnings,
+  không disable conversion hoặc rule). Guarded post-suite DB check xác nhận PostgreSQL18.6,
+  **0 tbs_test_ schemas và 0 other clients**. Sau verify Compose labels/project/service/
+  workspace/port, chỉ stop telebotshop-t02/postgres-test trên55433; không xóa volumes,
+  không stop dev DB hoặc Docker Desktop.
+
+  **Gate E chưa verify; T14 cha vẫn unchecked.** Không Telegram messages/payments/refunds
+  thật, không account/webhook changes/deploy/commit/push. Owner hoàn thiện temp.md và test
+  account/bot/config trước nghiệm thu E, không gửi secrets vào chat. T15–T18 vẫn pending;
+  kết thúc phần local T14, không tự chạy growth/release.
+
+  **Tiếp tục gate E ngày 22/10/2026:** Owner chọn nghiệm thu T14 thay vì T15. `.env`
+  được kiểm tra bằng output allowlist: APP_ENV development, endpoint main, keys hợp lệ,
+  chưa bật terms. Owner xác nhận token đó là bot Telegram bình thường đã smoke trước.
+  Không suy có file `.env` là có credentials của dedicated Test Server.
+
+  Chuẩn bị ignored `.env.telegram-test` với APP_ENV/endpoint test, AES/dedup riêng,
+  `.cache/telegram-test/terms-test.md` chỉ dành cho dữ liệu giả; không thay `.env`/temp.md.
+  Tạo database mới `telebotshop_telegram_test` trên local PostgreSQL18 ở55432, exact target/
+  owner marker trước reuse, không reset hoặc sửa bot main/dev DB hay disposable55433.
+  `uv run --env-file .env.telegram-test --no-sync alembic upgrade head` exit0; preflight
+  xác minh head0014, marker, keyring/terms hợp lệ và0 users/products/orders/payments/invoice
+  intents. Sửa quote JSON keyring trong cấu hình/hướng dẫn để uv dotenv không bỏ quotes.
+
+  Read-only Test Server getMe đề xuất dùng token `.env` bị automatic approval review
+  chặn trước thực thi vì credential/endpoint mismatch và chưa có authorization rõ cho
+  credential đó. Không API request nào được gửi từ đề xuất này. Owner sau đó xác nhận
+  token main; không retry hoặc workaround rejection. Chưa start test polling/worker,
+  seed catalog/stock hoặc gọi Stars/refund. Cần Owner tạo bot bằng BotFather trong
+  Test Server và điền token tại `.env.telegram-test`, không gửi secret vào chat. Sau đó
+  xác minh private challenge trước ghim OWNER_ID và thực hiện checklist E có quan sát thật.
+  T14 cha/E tiếp tục pending, không làm T15. Chi tiết setup ở mục7 của guide.
+
+  **Khoanh vùng blocker theo Owner:** account Test Server đã đăng nhập; mở được BotFather
+  bằng username trong Saved Messages, `/start`/`/newbot` có tick nhưng không phản hồi.
+  Owner dùng tài khoản đăng ký bằng số thật; không lưu số/OTP hoặc thông tin nhận diện.
+  Chưa đủ evidence xác định service outage, client fault hay account restriction. Official
+  Telegram docs vẫn hướng dẫn tạo bot riêng ở Test Server; TDLib issue3370 về synthetic
+  accounts là trao đổi năm2025, không dùng làm bằng chứng BotFather hiện đang down.
+  Chưa có token test nên gate E vẫn pending; các bước local/setup hoàn tất, không sửa
+  application code hoặc đổi credential main để vượt blocker. Handoff tại mục7 của guide.
+
+  **Preflight ngày 23/10/2026:** `.env.telegram-test` có token nhưng so sánh local, không
+  in secrets, xác nhận token trùng hoàn toàn `.env` main. Không gọi API hoặc start runtime
+  test bằng credential đó. Cần token riêng của bot Test Server tại `.env.telegram-test`;
+  giữ nguyên keys/DB và chờ private challenge cho OWNER_ID. E/T14 cha vẫn pending.
+
+  **Computer Use ngày 23/10/2026:** Owner cài Windows Computer Use. Quan sát trực tiếp
+  Telegram xác nhận profile chat cũ là `@BotFatherBot`; mở đúng `@botfather`, kiểm tra
+  username và nhấn START thì nhận ngay menu lệnh. Không phải evidence BotFather test
+  ngừng phản hồi. Telegram có kết nối Test DC2 theo metadata mạng/source chính thức;
+  chưa dùng token mới với Test API. Chưa tạo bot/credential mới hoặc đổi `.env`/test env.
+  Cần bot test riêng rồi endpoint/Owner challenge; Stars/fulfillment/refund E vẫn pending.
+
+  **Tạo/cấu hình bot test theo xác nhận Owner ngày 23/10/2026:** đã tạo
+  `@telebotshop_t14_1023_6c9a_bot`, lưu token test riêng vào ignored `.env.telegram-test`.
+  Test `getMe` khớp username/tên, không webhook; actual Desktop `/start` + random private
+  challenge tới đúng bot, ghim OWNER_ID trong config sau unique sender/chat/freshness checks.
+  Không advance offset. 8 commands và mô tả nội bộ được API đọc lại khớp. Một đề xuất ảnh
+  chat bị auto-review chặn vì nguy cơ lưu token; không thực thi, dùng UIA metadata/boolean
+  và direct local persistence thay thế. `.env` main và mọi keyring/settings khác giữ nguyên.
+
+  Runtime preflight lỗi **ImportError asyncpg.pgproto** trước khi mở connection hoặc
+  bootstrap DB. Native files đầy đủ và khớp installed RECORD; Windows báo Application
+  Control, Code Integrity event3033 ghi `pgproto.cp312-win_amd64.pyd`/python.exe; chưa xác
+  định policy cụ thể. Owner được yêu cầu kiểm tra import ngoài Codex. Không sửa/tắt policy,
+  cài lại dependencies hoặc đổi DLL để vượt chặn. Docker Desktop/dev PostgreSQL đã start
+  sau xác minh target; read-only psql khớp DB/role/marker/head0014, 0 users/products/orders/
+  payments/invoice intents. Không reset, migrations mới hoặc ghi ledger. Local ignored
+  launcher compile/config guard đạt. Owner/keyring DB chưa bootstrap, chưa seed, polling/
+  worker chưa chạy; Stars/fulfillment/refund E và T14 cha tiếp tục pending. Chi tiết mục7 guide.
+
+  **Khắc phục runtime theo Owner ngày23/10/2026:** CPython3.12.15/uv0.13.4/asyncpg0.32.0
+  khớp pin và lock. Minimal import và import bootstrap đã PASS ngay trước mọi thay đổi;
+  không tái hiện được ImportError cũ. Events3033/3077 xác định `pgproto.cp312-win_amd64.pyd`,
+  status0xc0e90002, policy `VerifiedAndReputableDesktop` GUID0283ac0f-fff1-49ae-ada1-8a933130cad6
+  (Smart App Control). `CiTool -lp -json` bị Access Denied; registry trạng thái1 và official
+  policy mapping xác nhận SAC đang bật. Không sửa policy hoặc tắt bất kỳ bảo vệ Windows nào.
+  Fresh official locked wheel có hash cd7157a86817730c3239bc687abf8186a471525d695e225c187b9a523a808a98
+  được reinstall với require-hashes/no-cache/no-deps/no-build; ba native files khớp RECORD
+  và bytes trước reinstall. Import sau reinstall PASS, không chứng minh reinstall gây hết lỗi.
+
+  Launcher `pytest.exe` vẫn bị policy đó chặn; standard `python -m pytest` chạy native:
+  **C496 passed/18.36s**, **D446 passed/535.94s** (gồm6 core-shop cases), **H6 passed**;
+  zero failures/errors/skips. Lock check và architecture/harness integrity PASS. Chưa cần
+  WSL/Docker Linux cho app vì native interpreter, PostgreSQL tests và runtime đều chạy.
+  Commands, policy evidence và ma trận E tại mục8 [BOTFATHER-SETUP](../../BOTFATHER-SETUP.md).
+
+  Ở checkpoint native trước CLI, guarded launcher đã start polling/worker Test Server, Owner/keyring bootstrap
+  và actual `/start` được xử lý. Qua existing confirmed use cases, tạo7 sản phẩm FAKE
+  (năm types, reusable text/document, SKU riêng tranh kho), giá1 test Star và real upload
+  file giả bot-scoped. Không direct SQL ledger writes hoặc fake Telegram receipts/updates.
+  DB marker/head0014 đúng; lúc đó0 orders/payments/fulfillments,3 low-stock notifications SENT
+  qua Test API. Owner có một Test account và đang chuẩn bị account thứ hai. GUI guard từ chối
+  gửi `/admin` khi expected bot chat không mở; không thao tác account/login hoặc app khác.
+  Financial E chưa chạy; T14 cha vẫn unchecked. Không đổi source/dependency/lock/ADRs,
+  `.env` main/test/index/HEAD; không commit/push/deploy. Chỉ cập nhật ba docs cùng ignored
+  diagnostics/fixtures/launcher helpers. Disposable suite DB riêng localhost55433; acceptance
+  DB riêng localhost55432, không reset volume hoặc dữ liệu main.
+
+  **One-buyer GUI checkpoint (lịch sử, trước CLI E1–E4):** Owner báo account2 chưa tạo được vì Telegram login limit;
+  không dùng account main như buyer của Test Server hoặc retry login tự động. Session test
+  cũ vẫn có, đã mở đúng bot và quan sát actual `/admin` (Owner menu) cùng `/search T14 FAKE KEY`
+  (một fixture giá1 Star). Các case không cần account2 tiếp tục trước; two-buyer/IDOR/staff
+  còn pending. Inline mouse click chưa đổi view dù foreground/physical coords/elevation đã
+  kiểm tra; lúc đó chưa quy lỗi app và cần Owner bấm tay một nút xem chi tiết để chẩn đoán.
+  Chưa checkout/invoice/payment/refund, DB vẫn0 orders/payments/fulfillments. E/T14 vẫn unchecked.
 
 ## Phase 4
 

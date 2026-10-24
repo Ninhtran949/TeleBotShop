@@ -2,7 +2,7 @@
 
 T02 dùng PostgreSQL **18.6**, SQLAlchemy **2.0.55** Async + asyncpg **0.32.0** và
 Alembic **1.20.0**. T03 thêm identity/access/settings và audit repositories bằng SQLAlchemy
-Core tables; không trả ORM/session ra application. Head hiện tại **`0013_refunds`**;
+Core tables; không trả ORM/session ra application. Head hiện tại **`0020_external_refund_records`**;
 `0001_runtime` giữ nguyên, `0002_identity` thêm identity/Owner/audit, `0003_access` thêm
 explicit grants, settings và confirmation. T04 thêm `0004_catalog`; T05 thêm encrypted
 inventory/actions/key verifiers; T06 thêm orders/items/invoice intents và finite reservations.
@@ -16,6 +16,30 @@ T12 thêm support tickets/messages/actions và orders(id,buyer_id) unique để 
 ownership bằng composite FK; không sửa revisions 0001–0011 hoặc payment/delivery state.
 T13 thêm refund intents/receipts/verifications và owned hold pointer; orders nhận REFUNDED.
 Revision 0001–0012 giữ nguyên; chỉ revision mới mở rộng guarded transitions.
+
+## Payment V2
+
+Revisions0001–0014 giữ nguyên bytes. Additive0015–0020 thêm:
+
+| Revision | Dữ liệu/invariant |
+| --- | --- |
+| 0015 | Wallet accounts, immutable journals/two postings, permissions; deferred balanced journal, customer balance ≥0 và projection trigger. |
+| 0016 | Explicit credit prices; order/item/payment method và disjoint CRD/XTR fields; exact purchase journal + PAID/allocation/work tại commit. Stars functions gốc không bị viết lại. |
+| 0017 | Immutable top-up quote, exclusive deposit routes, canonical events/observations, manual decisions và bounded reconciliation cursor. Source + settlement + journal phải khớp. |
+| 0018 | Credit refund actions, top-up reversals; wallet-specific order/delivery guards, original Stars guards/function text được giữ. |
+| 0019 | Reuse durable notification outbox cho WALLET_TOPUP/TOPUP_REVIEW. |
+| 0020 | Append-only manual external-refund records REQUESTED/UNCERTAIN/CONFIRMED/REJECTED. CONFIRMED cần prior top-up reversal; đây là operator evidence, app không chuyển tiền. |
+
+Runtime sandbox DB tên chính xác `telebotshop_payment_v2_sandbox`, comment marker
+`telebotshop:payment-v2-sandbox:v1`; kiểm tra bằng `pg_catalog.shobj_description` vì database
+là shared catalog object. Settings và startup checks ngăn nhầm dev/acceptance/production DB.
+Không apply các revisions mới vào database Telegram cũ trong phiên Payment V2.
+
+Downgrade có PV2 history bị từ chối, kể cả ledger/refund/notification evidence. Không rollback
+bằng xóa journal hoặc release key. Stop writes, giữ dữ liệu và forward-fix hoặc restore backup
+đã review. Runbook và exact local evidence: [PAYMENT-V2](PAYMENT-V2.md).
+
+## Legacy T02–T14 tables
 
 | Tables | Contract |
 | --- | --- |
@@ -430,3 +454,28 @@ old rows nguyên vẹn. Downgrade từ chối khi có intent/receipt/verificatio
 evidence để vượt guard. Test historical seeding dùng explicit pre_refunds UoW seam vì schema
 trước T13 chưa có refund receipts; mọi financial writes vẫn PostgreSQL thật, T13 tests dùng
 repo/constraints thật. No runtime schema probing/fallback để chạy trên schema cũ.
+
+## T14 consent và operational outbox
+
+Checkout consent reuse `audit_logs`: action checkout.terms, buyer actor, target order,
+idempotent UUID correlation từ order/full SHA-256 terms. Không lưu terms body hoặc secrets;
+consent commit trước invoice claim, replay không nhân audit hoặc external send.
+
+Migration 0014 chỉ thêm `notifications` và guard của nó; revisions 0001–0013 giữ nguyên.
+Kind/target UUID/recipient UUID/revision là immutable identity và unique dedup tuple;
+revision ≤64 safe ASCII, recipient FK users. Payload chỉ metadata/time/state/message ID,
+không body/ciphertext/charge. Partial indexes hỗ trợ READY claim và expired SENDING recovery.
+Discovery tối đa 10/loại, tổng 100/lượt; claim row FOR UPDATE SKIP LOCKED.
+
+READY→SENDING sau kiểm tra source/quyền và commit send window 60s; send API timeout 10s
+ngoài UoW. READY obsolete→SUPPRESSED; SENDING→SENT/FAILED/UNCERTAIN. Expired SENDING→
+UNCERTAIN; không transition ngược hoặc xóa/truncate history. Late result chỉ ghi observation
+một lần với đúng identity/window; không clear uncertainty. Explicit NULL-safe CHECK/trigger
+đòi timestamps/outcome/positive message ID đi cùng nhau, chặn missing ACK hoặc reset window.
+Current recipient/source check thuộc use case/repository, không tin foreign keys làm auth.
+
+Native tests kiểm tra hai physical connections, discovery/send dedup, before-commit/lost
+ACK ở begin/complete, revoke/restock/latest reply, all financial source kinds và metadata
+không secret. Upgrade 0013→0014→0013→0014 so sánh toàn bộ predecessor rows/functions và
+metadata drift; downgrade chỉ khi chưa có notification history. Có history thì từ chối,
+không xóa để qua gate. Các bảng tiền/kho/order không bị đổi bởi notification workflow.

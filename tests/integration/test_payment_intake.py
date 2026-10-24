@@ -12,18 +12,19 @@ from telebotshop.application.services.catalog import CatalogService
 from telebotshop.application.services.history import HistoryService
 from telebotshop.application.services.identity import IdentityService
 from telebotshop.application.services.pre_checkout import PreCheckoutService
-from telebotshop.bootstrap import create_dispatcher
+from telebotshop.bootstrap import create_dispatcher, runtime_dispatcher
 from telebotshop.infrastructure.database.uow import SqlAlchemyUnitOfWork, unit_of_work
-from tests.inventory import inventory_service
+from tests.checkout import checkout_service
+from tests.inventory import fake_cipher, inventory_service
 from tests.manual import manual_service
 from tests.orders import order_service, setup_orders
 from tests.payments import payment_service
-from tests.pre_checkout import payable_invoice
+from tests.pre_checkout import checkout_request, payable_invoice
 from tests.refunds import refund_service
 from tests.resends import RecordingSender, resend_service
 from tests.resources import resource_service
 from tests.support import support_service
-from tests.telegram import TelegramRecorder, payment_update, pre_checkout_update
+from tests.telegram import TelegramRecorder, payment_update, pre_checkout_update, refund_update
 
 
 @pytest.mark.asyncio
@@ -47,6 +48,7 @@ async def test_receipt_commit_failure_returns_http_error_and_redelivery_commits_
         manual=manual_service(engine),
         support=support_service(engine),
         refunds=refund_service(engine),
+        checkout=checkout_service(engine),
         history=HistoryService(factory),
         resends=resend_service(engine, RecordingSender(engine)),
     )
@@ -89,6 +91,50 @@ async def test_receipt_commit_failure_returns_http_error_and_redelivery_commits_
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("previously_approved", [False, True])
+async def test_paused_stars_denies_old_invoice_but_keeps_payment_and_refund_intake(
+    migrated_database, monkeypatch, previously_approved
+):
+    engine = migrated_database
+    product = await setup_orders(engine)
+    order = await order_service(engine).create(101, product.id, uuid4())
+    await payable_invoice(engine, order)
+    factory = partial(unit_of_work, engine)
+    if previously_approved:
+        assert await PreCheckoutService(factory).check(checkout_request(order))
+    async with engine.connect() as connection:
+        expiry = await connection.scalar(text("SELECT expires_at FROM orders"))
+    telegram = TelegramRecorder(monkeypatch)
+    dispatcher = runtime_dispatcher(
+        factory, inventory_service(engine), fake_cipher(), telegram.bot, None, stars_enabled=False
+    )
+    try:
+        await dispatcher.feed_update(telegram.bot, pre_checkout_update(payload=order.payload))
+        assert len(telegram.calls) == 1 and telegram.calls[0].ok is False
+        async with engine.connect() as connection:
+            assert await connection.scalar(
+                text("SELECT count(*) FROM pre_checkout_approvals")
+            ) == int(previously_approved)
+            assert await connection.scalar(text("SELECT expires_at FROM orders")) == expiry
+        for _ in range(2):
+            await dispatcher.feed_update(telegram.bot, payment_update(payload=order.payload))
+        assert (await order_service(engine).get(101, order.id)).status == "PAID"
+        for _ in range(2):
+            await dispatcher.feed_update(telegram.bot, refund_update(payload=order.payload))
+        assert (await order_service(engine).get(101, order.id)).status == "REFUNDED"
+        async with engine.connect() as connection:
+            assert await connection.scalar(text("SELECT count(*) FROM payments")) == 1
+            assert await connection.scalar(text("SELECT count(*) FROM refund_receipts")) == 1
+            assert await connection.scalar(text("SELECT status FROM refund_intents")) == "SUCCEEDED"
+            assert (
+                await connection.scalar(text("SELECT status FROM inventory_units")) == "ALLOCATED"
+            )
+        assert len(telegram.calls) == 1
+    finally:
+        await telegram.bot.session.close()
+
+
+@pytest.mark.asyncio
 async def test_real_dispatcher_approval_then_receipt_uses_server_snapshots_without_delivery(
     migrated_database,
     monkeypatch,
@@ -116,6 +162,7 @@ async def test_real_dispatcher_approval_then_receipt_uses_server_snapshots_witho
         manual=manual_service(engine),
         support=support_service(engine),
         refunds=refund_service(engine),
+        checkout=checkout_service(engine),
         history=HistoryService(factory),
         resends=resend_service(engine, RecordingSender(engine)),
     )

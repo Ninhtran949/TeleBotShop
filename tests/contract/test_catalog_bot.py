@@ -12,7 +12,7 @@ from telebotshop.application.services.catalog import CatalogService
 from telebotshop.bot.keyboards import catalog as navigation
 from telebotshop.bot.routers.catalog import create_catalog_router
 from telebotshop.domain.errors import CatalogNotFound
-from telebotshop.domain.models.catalog import Page, Product, SaleState
+from telebotshop.domain.models.catalog import Availability, Page, Product, SaleState
 from telebotshop.infrastructure.telegram.guard import IngressGuard
 from tests.catalog import fake_product
 from tests.telegram import TelegramRecorder, callback_update, message_update
@@ -32,6 +32,7 @@ async def test_search_pagination_preserves_query_and_product_uses_public_photo_a
     )
     service.products.return_value = Page((product,), 0, True)
     service.product.return_value = product
+    service.availability.return_value = Availability(3, True)
     telegram = TelegramRecorder(monkeypatch)
     dispatcher = Dispatcher(disable_fsm=True)
     guard = IngressGuard()
@@ -83,6 +84,7 @@ async def test_optional_photo_failure_is_redacted_and_callback_is_already_acknow
     )
     service.products.return_value = Page((product,), 0, False)
     service.product.return_value = product
+    service.availability.return_value = Availability(3, True)
     telegram = TelegramRecorder(monkeypatch)
     photo_attempts = []
 

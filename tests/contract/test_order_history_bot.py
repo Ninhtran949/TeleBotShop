@@ -85,7 +85,10 @@ async def test_history_buttons_and_resend_confirmation_preserve_actor_and_hide_p
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("data", ["ord:l:-1", "ord:v:not-a-uuid", "ord:r:x", "ord:" + "x" * 65])
+@pytest.mark.parametrize(
+    "data",
+    ["ord:l:-1", "ord:v:not-a-uuid", "ord:r:x", "ord:u:101_-1", "ord:u:bad", "ord:" + "x" * 65],
+)
 async def test_history_rejects_malformed_callbacks_before_mutation(monkeypatch, data):
     history, resends, telegram, dispatcher = setup(monkeypatch)
     try:
@@ -112,5 +115,22 @@ async def test_history_cannot_escape_private_actor_chat(monkeypatch, update):
         await dispatcher.feed_update(telegram.bot, update)
         history.list.assert_not_awaited()
         resends.prepare.assert_not_awaited()
+    finally:
+        await telegram.bot.session.close()
+
+
+@pytest.mark.asyncio
+async def test_customer_lookup_command_and_pagination_preserve_filter(monkeypatch):
+    history, _, telegram, dispatcher = setup(monkeypatch)
+    history.list.return_value = Page((), 0, True)
+    try:
+        await dispatcher.feed_update(telegram.bot, message_update("/customer 101", actor=9001))
+        history.list.assert_awaited_once_with(9001, page=0, staff=True, buyer_telegram_id=101)
+        assert "101" in telegram.calls[-1].text
+        assert "ord:u:101_1" in str(telegram.calls[-1].reply_markup)
+        history.list.return_value = Page((), 1, False)
+        await dispatcher.feed_update(telegram.bot, callback_update("ord:u:101_1", actor=9001))
+        history.list.assert_awaited_with(9001, page=1, staff=True, buyer_telegram_id=101)
+        assert "ord:u:101_0" in str(telegram.calls[-1].reply_markup)
     finally:
         await telegram.bot.session.close()

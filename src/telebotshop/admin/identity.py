@@ -22,11 +22,13 @@ PERMISSION_LABELS = {
 }
 
 
-def admin_menu(actor: Access) -> tuple[str, InlineKeyboardMarkup]:
+def admin_menu(actor: Access, *, wallet_enabled: bool = False) -> tuple[str, InlineKeyboardMarkup]:
     text = "Quản trị\nQuyền hiện tại:\n" + "\n".join(
         f"• {PERMISSION_LABELS[permission]}" for permission in sorted(actor.permissions)
     )
     rows = []
+    if wallet_enabled and actor.role in {Role.OWNER, Role.ADMIN}:
+        rows.append([InlineKeyboardButton(text="Ví / Bank / USDT", callback_data="wp:home")])
     if Permission.REFUND in actor.permissions:
         rows.append([InlineKeyboardButton(text="Hoàn tiền Stars", callback_data="rf:list:0")])
     if Permission.MANAGE_TICKETS in actor.permissions:
@@ -34,6 +36,7 @@ def admin_menu(actor: Access) -> tuple[str, InlineKeyboardMarkup]:
     if Permission.VIEW_ORDERS in actor.permissions:
         rows.append([InlineKeyboardButton(text="Tổng quan đơn", callback_data="ord:d:0")])
         rows.append([InlineKeyboardButton(text="Đơn hàng", callback_data="ord:a:0")])
+        rows.append([InlineKeyboardButton(text="Khách hàng", callback_data="ord:k:0")])
     if Permission.MANAGE_CATALOG in actor.permissions:
         rows.append([InlineKeyboardButton(text="Sản phẩm", callback_data="pc:list:0")])
     if Permission.MANAGE_INVENTORY in actor.permissions:
@@ -77,7 +80,7 @@ def confirmation(action: AdminAction) -> InlineKeyboardMarkup:
     )
 
 
-def create_admin_router(access: AccessService) -> Router:
+def create_admin_router(access: AccessService, *, wallet_enabled: bool = False) -> Router:
     router = Router(name="admin_identity")
 
     @router.message(Command("admin"))
@@ -85,7 +88,7 @@ def create_admin_router(access: AccessService) -> Router:
         if message.from_user is None:
             return
         actor = await access.admin_access(message.from_user.id)
-        text, keyboard = admin_menu(actor)
+        text, keyboard = admin_menu(actor, wallet_enabled=wallet_enabled)
         await message.answer(text, reply_markup=keyboard, parse_mode=None)
 
     @router.message(Command("grant", "revoke"))
@@ -138,7 +141,7 @@ def create_admin_router(access: AccessService) -> Router:
         keyboard = back_keyboard()
         if data == "adm:home":
             actor = await access.admin_access(actor_id)
-            text, keyboard = admin_menu(actor)
+            text, keyboard = admin_menu(actor, wallet_enabled=wallet_enabled)
         elif data == "adm:settings":
             await access.authorize(actor_id, Permission.MANAGE_SETTINGS)
             settings = await access.settings(actor_id)

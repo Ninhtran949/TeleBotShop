@@ -26,6 +26,7 @@ def dispatcher_for(receiver):
         resends=AsyncMock(),
         support=AsyncMock(),
         refunds=AsyncMock(),
+        checkout=AsyncMock(),
     )
 
 

@@ -6,16 +6,20 @@ from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 from telebotshop.application.ports.uow import UnitOfWork
 from telebotshop.infrastructure.database.repositories.access import SqlAccessRepository
 from telebotshop.infrastructure.database.repositories.catalog import SqlCatalogRepository
+from telebotshop.infrastructure.database.repositories.credit_orders import SqlCreditOrderRepository
 from telebotshop.infrastructure.database.repositories.fulfillment import SqlFulfillmentRepository
 from telebotshop.infrastructure.database.repositories.history import SqlHistoryRepository
 from telebotshop.infrastructure.database.repositories.identity import SqlIdentityRepository
 from telebotshop.infrastructure.database.repositories.inventory import SqlInventoryRepository
 from telebotshop.infrastructure.database.repositories.manual import SqlManualRepository
+from telebotshop.infrastructure.database.repositories.notifications import SqlNotificationRepository
 from telebotshop.infrastructure.database.repositories.orders import SqlOrderRepository
 from telebotshop.infrastructure.database.repositories.payments import SqlPaymentRepository
 from telebotshop.infrastructure.database.repositories.refunds import SqlRefundRepository
 from telebotshop.infrastructure.database.repositories.resources import SqlResourceRepository
 from telebotshop.infrastructure.database.repositories.support import SqlSupportRepository
+from telebotshop.infrastructure.database.repositories.topups import SqlTopUpRepository
+from telebotshop.infrastructure.database.repositories.wallet import SqlWalletRepository
 
 
 class SqlAlchemyUnitOfWork(UnitOfWork):
@@ -33,6 +37,10 @@ class SqlAlchemyUnitOfWork(UnitOfWork):
         self.history = SqlHistoryRepository(session)
         self.support = SqlSupportRepository(session)
         self.refunds = SqlRefundRepository(session)
+        self.notifications = SqlNotificationRepository(session)
+        self.wallet = SqlWalletRepository(session)
+        self.credit_orders = SqlCreditOrderRepository(session)
+        self.topups = SqlTopUpRepository(session)
 
     async def commit(self) -> None:
         await self.session.commit()

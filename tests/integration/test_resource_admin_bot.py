@@ -14,6 +14,7 @@ from telebotshop.bootstrap import create_dispatcher
 from telebotshop.domain.models.catalog import ProductType
 from telebotshop.infrastructure.database.uow import unit_of_work
 from telebotshop.infrastructure.delivery.finite import FiniteDeliverySender
+from tests.checkout import checkout_service
 from tests.fulfillment import fulfillment_service
 from tests.inventory import inventory_service
 from tests.manual import manual_service
@@ -60,6 +61,7 @@ async def test_runtime_resource_delivery_and_manual_completion_close_uow_before_
         manual=manual_service(engine),
         support=support_service(engine),
         refunds=refund_service(engine),
+        checkout=checkout_service(engine),
         history=HistoryService(factory),
         resends=resend_service(engine, RecordingSender(engine)),
     )

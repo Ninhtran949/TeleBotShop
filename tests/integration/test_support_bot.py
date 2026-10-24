@@ -15,6 +15,7 @@ from telebotshop.application.services.support import SupportService
 from telebotshop.bootstrap import create_dispatcher
 from telebotshop.domain.models.support import PublicTerms
 from telebotshop.infrastructure.database.uow import unit_of_work
+from tests.checkout import checkout_service
 from tests.fulfillment import paid_work
 from tests.integration.test_support import staff
 from tests.inventory import fake_cipher, inventory_service
@@ -59,6 +60,7 @@ async def test_native_private_support_assignment_reply_and_order_help(
         resends=resend_service(engine, RecordingSender(engine)),
         support=support,
         refunds=refund_service(engine),
+        checkout=checkout_service(engine),
     )
     sequence = 20
 

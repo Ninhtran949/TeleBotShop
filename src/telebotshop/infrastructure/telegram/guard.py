@@ -8,7 +8,13 @@ from aiogram.exceptions import TelegramAPIError
 from aiogram.types import CallbackQuery, Message, TelegramObject
 from sqlalchemy.exc import SQLAlchemyError
 
-from telebotshop.domain.errors import AccessDenied, CatalogNotFound, InvalidAction, InvalidInput
+from telebotshop.domain.errors import (
+    AccessDenied,
+    CatalogNotFound,
+    InvalidAction,
+    InvalidInput,
+    OutOfStock,
+)
 from telebotshop.domain.models.inventory import InventoryCryptoError, InventoryImportError
 
 logger = logging.getLogger(__name__)
@@ -82,8 +88,10 @@ class IngressGuard(BaseMiddleware):
                 text = "Dữ liệu không hợp lệ. Vui lòng kiểm tra hướng dẫn."
             except CatalogNotFound:
                 text = "Sản phẩm hoặc danh mục không còn hiển thị. Vui lòng mở lại /shop."
+            except OutOfStock:
+                text = "Sản phẩm vừa hết hàng hoặc đang được giữ chỗ. Vui lòng chọn sản phẩm khác."
             except InvalidAction:
-                text = "Thao tác không còn hợp lệ. Vui lòng mở lại từ /admin."
+                text = "Thao tác không còn hợp lệ. Vui lòng mở lại từ menu tương ứng."
             except SQLAlchemyError:
                 logger.warning("telegram_database_failure")
                 text = "Chưa thể xử lý yêu cầu. Vui lòng thử lại sau."

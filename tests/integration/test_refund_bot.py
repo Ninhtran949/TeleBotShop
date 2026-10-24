@@ -13,6 +13,7 @@ from telebotshop.application.services.pre_checkout import PreCheckoutService
 from telebotshop.bootstrap import create_dispatcher
 from telebotshop.domain.models.refunds import RefundResult, RefundState
 from telebotshop.infrastructure.database.uow import unit_of_work
+from tests.checkout import checkout_service
 from tests.fulfillment import paid_work
 from tests.inventory import inventory_service
 from tests.manual import manual_service
@@ -58,6 +59,7 @@ async def test_native_refund_navigation_current_grants_and_event_without_network
         resends=resend_service(engine, RecordingSender(engine)),
         support=support_service(engine),
         refunds=service,
+        checkout=checkout_service(engine),
     )
     async with engine.connect() as connection:
         payment_id = await connection.scalar(text("SELECT id FROM payments"))

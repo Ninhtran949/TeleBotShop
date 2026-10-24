@@ -10,10 +10,13 @@ from telebotshop.domain.models.pre_checkout import PreCheckout
 
 
 class PreCheckoutService:
-    def __init__(self, uow: UnitOfWorkFactory) -> None:
+    def __init__(self, uow: UnitOfWorkFactory, *, enabled: bool = True) -> None:
         self.uow = uow
+        self.enabled = enabled
 
     async def check(self, request: PreCheckout) -> bool:
+        if not self.enabled:
+            return False
         async with asyncio.timeout(PRE_CHECKOUT_DB_BUDGET), self.uow() as work:
             await work.orders.configure_timeouts()
             profile = await work.identity.get_profile(request.buyer_telegram_id)

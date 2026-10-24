@@ -1,6 +1,9 @@
 .env
 .env.*
 !.env.example
+!.env.payment-v2.example
+*.session
+*.session-*
 __pycache__/
 .venv/
 .tools/

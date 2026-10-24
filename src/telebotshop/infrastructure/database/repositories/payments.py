@@ -35,6 +35,13 @@ def stored_payment(row) -> StoredPayment:
     )
 
 
+def stars_payment_query():
+    names = ["id", "order_id", "status", "review_reason"] + [
+        field.name for field in fields(PaymentReceipt)
+    ]
+    return select(*(payments.c[name] for name in names))
+
+
 class SqlPaymentRepository(PaymentRepository):
     def __init__(self, session: AsyncSession) -> None:
         self.session = session
@@ -48,7 +55,7 @@ class SqlPaymentRepository(PaymentRepository):
         row = (
             (
                 await self.session.execute(
-                    select(payments).where(
+                    stars_payment_query().where(
                         payments.c.charge_id == charge_id,
                     )
                 )

@@ -14,6 +14,7 @@ from telebotshop.domain.models.fulfillment import DeliveryCode, DeliveryResult, 
 from telebotshop.domain.models.refunds import RefundReceipt, StarEvidence
 from telebotshop.domain.models.support import TicketKind
 from telebotshop.infrastructure.database.models.refunds import metadata
+from telebotshop.infrastructure.database.schema import SCHEMA_HEAD
 from tests.fulfillment import paid_work
 from tests.integration.test_migrations import upgrade
 from tests.integration.test_resource_migrations import legacy_delivery
@@ -150,6 +151,6 @@ async def test_t13_downgrade_refuses_refund_or_verification_history(migrated_dat
             await connection.run_sync(downgrade)
     async with engine.connect() as connection:
         assert (
-            await connection.scalar(text("SELECT version_num FROM alembic_version"))
-            == "0013_refunds"
+            await connection.scalar(text("SELECT version_num FROM alembic_version")) == SCHEMA_HEAD
         )
+        assert await connection.scalar(text("SELECT to_regclass('notifications')")) is not None

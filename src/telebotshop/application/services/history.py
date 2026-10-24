@@ -28,11 +28,26 @@ class HistoryService:
     def __init__(self, uow: UnitOfWorkFactory) -> None:
         self.uow = uow
 
-    async def list(self, actor_id: int, page: int = 0, *, staff: bool = False) -> Page[OrderView]:
+    async def list(
+        self,
+        actor_id: int,
+        page: int = 0,
+        *,
+        staff: bool = False,
+        buyer_telegram_id: int | None = None,
+    ) -> Page[OrderView]:
         validate_page(page)
         async with self.uow() as work:
             await work.orders.configure_timeouts()
             buyer_id = await history_scope(work, actor_id, staff)
+            if buyer_telegram_id is not None:
+                if not staff:
+                    raise AccessDenied("Customer lookup unavailable")
+                validate_telegram_id(buyer_telegram_id)
+                buyer = await work.identity.get_profile(buyer_telegram_id)
+                if buyer is None:
+                    return Page((), page, False)
+                buyer_id = buyer.id
             since = await work.orders.now() - timedelta(days=30) if staff else None
             return await work.history.page(buyer_id, page, since)
 

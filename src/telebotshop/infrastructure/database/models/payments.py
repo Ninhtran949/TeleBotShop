@@ -7,12 +7,18 @@ payments = sa.Table(
     "payments",
     metadata,
     sa.Column("id", sa.Uuid, primary_key=True),
-    sa.Column("charge_id", sa.String(1024), nullable=False),
+    sa.Column("charge_id", sa.String(1024)),
+    sa.Column("payment_method", sa.String(32), nullable=False, server_default="TELEGRAM_STARS"),
+    sa.Column(
+        "wallet_journal_id",
+        sa.Uuid,
+        sa.ForeignKey("wallet_journals.id", name="fk_payment_wallet_journal"),
+    ),
     sa.Column("payer_id", sa.BigInteger),
     sa.Column("currency", sa.String(16), nullable=False),
     sa.Column("amount", sa.BigInteger, nullable=False),
-    sa.Column("payload", sa.String(128), nullable=False),
-    sa.Column("provider_charge_id", sa.String(1024), nullable=False),
+    sa.Column("payload", sa.String(128)),
+    sa.Column("provider_charge_id", sa.String(1024)),
     sa.Column("is_recurring", sa.Boolean, nullable=False),
     sa.Column("is_first_recurring", sa.Boolean, nullable=False),
     sa.Column("subscription_expiration_date", sa.BigInteger),
@@ -28,6 +34,17 @@ payments = sa.Table(
         server_default=sa.func.clock_timestamp(),
     ),
     sa.UniqueConstraint("charge_id", name="uq_payments_charge"),
+    sa.UniqueConstraint("wallet_journal_id", name="uq_payment_wallet_journal"),
+    sa.CheckConstraint(
+        "(payment_method='TELEGRAM_STARS' AND wallet_journal_id IS NULL AND charge_id IS NOT NULL "
+        "AND payload IS NOT NULL AND provider_charge_id IS NOT NULL) OR "
+        "(payment_method='WALLET_CREDIT' AND wallet_journal_id IS NOT NULL AND charge_id IS NULL "
+        "AND payload IS NULL AND provider_charge_id IS NULL AND currency='CRD' AND amount>0 "
+        "AND status='MATCHED' AND NOT is_recurring AND NOT is_first_recurring "
+        "AND NOT has_order_info AND subscription_expiration_date IS NULL "
+        "AND shipping_option_id IS NULL)",
+        name="ck_payment_method_shape",
+    ),
     sa.CheckConstraint("octet_length(charge_id) BETWEEN 1 AND 1024", name="ck_payments_charge"),
     sa.CheckConstraint("octet_length(payload) <= 128", name="ck_payments_payload"),
     sa.CheckConstraint("payer_id IS NULL OR payer_id > 0", name="ck_payments_payer"),

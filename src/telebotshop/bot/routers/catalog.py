@@ -1,4 +1,5 @@
 from dataclasses import replace
+from secrets import token_hex
 from uuid import UUID
 
 from aiogram import F, Router
@@ -12,6 +13,7 @@ from aiogram.types import (
 )
 
 from telebotshop.application.services.catalog import CatalogService
+from telebotshop.application.services.wallet_checkout import WalletCheckoutService
 from telebotshop.bot.keyboards.catalog import CatalogView, NavigationStore
 from telebotshop.domain.errors import InvalidInput
 from telebotshop.domain.models.catalog import (
@@ -33,11 +35,12 @@ TYPE_LABELS = {
 }
 
 
-def product_text(product: Product) -> str:
+def product_text(product: Product, price_label: str | None = None) -> str:
     draft = product.draft
     text = (
         f"{draft.name}\n{TYPE_LABELS[draft.product_type]}\n"
-        f"Giá: {draft.price_stars} Stars\nSKU: {draft.sku}\n\n{draft.description}"
+        f"Giá: {price_label or str(draft.price_stars) + ' Stars'}\n"
+        f"SKU: {draft.sku}\n\n{draft.description}"
     )
     metadata = draft.metadata
     if isinstance(metadata, LicenseMetadata):
@@ -50,13 +53,23 @@ def product_text(product: Product) -> str:
         )
     elif isinstance(metadata, ManualMetadata):
         text += "\n\n" + metadata.customer_notice
-    # shortcut: availability/checkout arrive in T05/T06; no stock claims or order acceptance yet.
-    return text + "\n\nChưa nhận đơn."
+    return text
 
 
-def create_catalog_router(catalog: CatalogService) -> Router:
+def create_catalog_router(
+    catalog: CatalogService,
+    *,
+    wallet: WalletCheckoutService | None = None,
+    stars_enabled: bool = True,
+) -> Router:
     router = Router(name="customer_catalog")
     navigation = NavigationStore()
+
+    async def price_label(product):
+        if wallet is not None and wallet.enabled and wallet.terms_version:
+            amount = await wallet.price(product.id)
+            return f"{amount:,} credit" if amount is not None else "Chưa cấu hình giá credit"
+        return f"{product.draft.price_stars} Stars" if stars_enabled else "Chưa mở bán"
 
     async def render(actor_id: int, view: CatalogView) -> tuple[str, InlineKeyboardMarkup]:
         if view.kind == "categories":
@@ -98,7 +111,7 @@ def create_catalog_router(catalog: CatalogService) -> Router:
             rows = [
                 [
                     InlineKeyboardButton(
-                        text=f"{product.draft.name} · {product.draft.price_stars} Stars",
+                        text=f"{product.draft.name} · {await price_label(product)}",
                         callback_data=f"shop:p:{product.id.hex}:{token}",
                     )
                 ]
@@ -205,8 +218,39 @@ def create_catalog_router(catalog: CatalogService) -> Router:
                 except ValueError:
                     raise InvalidInput("Invalid product reference") from None
                 product = await catalog.product(actor_id, product_id)
+                availability = await catalog.availability(actor_id, product_id)
+                stock = (
+                    f"Còn có thể giữ chỗ: {availability.available}"
+                    if availability.available is not None
+                    else "Có thể cung cấp"
+                    if availability.ready
+                    else "Chưa sẵn sàng cung cấp"
+                )
+                buy = (
+                    [
+                        [
+                            InlineKeyboardButton(
+                                text="Mua ngay",
+                                callback_data=f"buy:{product.id.hex}:{token_hex(8)}",
+                            )
+                        ]
+                    ]
+                    if availability.ready and stars_enabled and wallet is None
+                    else []
+                )
+                if availability.ready and wallet is not None and wallet.terms_version:
+                    price = await wallet.price(product.id)
+                    if price is not None:
+                        buy = [
+                            [
+                                InlineKeyboardButton(
+                                    text="Mua bằng Credit", callback_data=f"wc:p:{product.id.hex}"
+                                )
+                            ]
+                        ]
                 keyboard = InlineKeyboardMarkup(
-                    inline_keyboard=[
+                    inline_keyboard=buy
+                    + [
                         [
                             InlineKeyboardButton(text="Quay lại", callback_data=f"shop:v:{token}"),
                             InlineKeyboardButton(text="Trang chủ", callback_data="home"),
@@ -215,7 +259,7 @@ def create_catalog_router(catalog: CatalogService) -> Router:
                     ]
                 )
                 await query.message.edit_text(
-                    product_text(product),
+                    product_text(product, await price_label(product)) + "\n\n" + stock,
                     reply_markup=keyboard,
                     parse_mode=None,
                     link_preview_options=LinkPreviewOptions(is_disabled=True),

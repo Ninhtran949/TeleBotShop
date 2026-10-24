@@ -16,6 +16,7 @@ from telebotshop.domain.models.access import Permission
 from telebotshop.domain.models.identity import CustomerIdentity, Role
 from telebotshop.infrastructure.database.uow import unit_of_work
 from telebotshop.infrastructure.telegram import guard as guard_module
+from tests.checkout import checkout_service
 from tests.inventory import inventory_service, setup_inventory
 from tests.manual import manual_service
 from tests.refunds import refund_service
@@ -64,6 +65,7 @@ async def test_upload_confirm_stock_pages_retire_and_low_stock_use_real_db_outsi
         manual=manual_service(migrated_database),
         support=support_service(migrated_database),
         refunds=refund_service(migrated_database),
+        checkout=checkout_service(migrated_database),
         history=HistoryService(factory),
         resends=resend_service(migrated_database, RecordingSender(migrated_database)),
     )
@@ -157,6 +159,7 @@ async def test_revocation_during_download_is_rechecked_before_persisting_import(
         manual=manual_service(migrated_database),
         support=support_service(migrated_database),
         refunds=refund_service(migrated_database),
+        checkout=checkout_service(migrated_database),
         history=HistoryService(factory),
         resends=resend_service(migrated_database, RecordingSender(migrated_database)),
     )

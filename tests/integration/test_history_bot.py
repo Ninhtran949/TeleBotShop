@@ -18,6 +18,7 @@ from telebotshop.domain.models.identity import CustomerIdentity, Role
 from telebotshop.domain.models.resources import DigitalFilePayload
 from telebotshop.infrastructure.database.uow import unit_of_work
 from telebotshop.infrastructure.delivery.finite import FiniteDeliverySender
+from tests.checkout import checkout_service
 from tests.inventory import inventory_service
 from tests.manual import manual_service
 from tests.refunds import refund_service
@@ -59,6 +60,7 @@ async def test_real_history_resend_routes_are_scoped_and_send_only_to_original_b
         manual=manual_service(engine),
         support=support_service(engine),
         refunds=refund_service(engine),
+        checkout=checkout_service(engine),
         history=HistoryService(factory),
         resends=resend_service(engine, FiniteDeliverySender(telegram.bot)),
     )

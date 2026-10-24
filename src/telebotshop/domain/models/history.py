@@ -13,7 +13,7 @@ class OrderView:
     title: str
     sku: str
     product_type: ProductType
-    price_stars: int
+    price_stars: int | None
     status: str
     created_at: datetime
     buyer_telegram_id: int
@@ -21,6 +21,7 @@ class OrderView:
     delivery_state: DeliveryState | None
     hold: bool
     resend_state: str | None = None
+    price_credits: int | None = None
 
     @property
     def can_resend(self) -> bool:
@@ -39,6 +40,7 @@ class OrderDashboard:
     total: int
     paid_stars: int
     status_counts: tuple[tuple[str, int], ...]
+    paid_credits: int = 0
 
 
 class ResendState(StrEnum):

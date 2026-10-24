@@ -39,7 +39,7 @@ async def test_worker_startup_recovery_wiring_and_resources_close(monkeypatch, o
     monkeypatch.setattr(bootstrap, "IdentityService", lambda *args: identity)
     monkeypatch.setattr(bootstrap, "InventoryService", lambda *args: inventory)
     monkeypatch.setattr(bootstrap, "FulfillmentService", lambda *args: service)
-    monkeypatch.setattr(bootstrap, "Bot", lambda *args: telegram.bot)
+    monkeypatch.setattr(bootstrap, "Bot", lambda *args, **kwargs: telegram.bot)
     monkeypatch.setattr(bootstrap, "run_forever", loop)
     try:
         if outcome == "ok":
@@ -51,7 +51,10 @@ async def test_worker_startup_recovery_wiring_and_resources_close(monkeypatch, o
                 await bootstrap.run_worker(settings(), fake_inventory_settings())
         identity.bootstrap_owner.assert_awaited_once_with(9001)
         inventory.check_keys.assert_awaited_once()
-        loop.assert_awaited_once_with(service, poll_seconds=1)
+        assert loop.await_count == 1
+        assert loop.await_args.args[0] is service
+        assert isinstance(loop.await_args.args[1], bootstrap.NotificationService)
+        assert loop.await_args.kwargs == {"poll_seconds": 1}
         close.assert_awaited_once()
         engine.dispose.assert_awaited_once()
         assert not telegram.calls

@@ -2,6 +2,7 @@ import base64
 import binascii
 import json
 import re
+from decimal import Decimal
 from pathlib import Path
 from typing import Literal
 
@@ -55,6 +56,9 @@ class BotSettings(Settings):
     bot_token: SecretStr = Field(repr=False)
     owner_id: int = Field(repr=False)
     shop_terms_path: Path | None = Field(default=None, repr=False)
+    telegram_environment: Literal["main", "test"] = "main"
+    stars_checkout_enabled: bool = False
+    credit_wallet_enabled: bool = False
 
     @field_validator("owner_id", mode="before")
     @classmethod
@@ -73,6 +77,68 @@ class BotSettings(Settings):
         if not re.fullmatch(r"[1-9][0-9]{0,15}:[A-Za-z0-9_-]{20,128}", token):
             raise ValueError("BOT_TOKEN is invalid")
         return value
+
+
+class WebhookSettings(BotSettings):
+    webhook_secret: SecretStr = Field(repr=False)
+
+    @field_validator("webhook_secret")
+    @classmethod
+    def validate_webhook_secret(cls, value: SecretStr) -> SecretStr:
+        if re.fullmatch(r"[A-Za-z0-9_-]{32,256}", value.get_secret_value()) is None:
+            raise ValueError("WEBHOOK_SECRET must contain 32-256 allowed characters")
+        return value
+
+
+class PaymentV2Settings(Settings):
+    shop_terms_path: Path | None = Field(default=None, repr=False)
+    stars_checkout_enabled: bool = False
+    credit_wallet_enabled: bool = True
+    bank_topup_enabled: bool = True
+    usdt_topup_enabled: bool = True
+    external_payments_live_enabled: bool = False
+    binance_readonly_enabled: bool = False
+    binance_api_key: SecretStr | None = Field(default=None, repr=False)
+    binance_api_secret: SecretStr | None = Field(default=None, repr=False)
+    usdt_network: str | None = Field(default=None, min_length=1, max_length=200)
+    usdt_token_contract: str | None = Field(default=None, min_length=1, max_length=200)
+    usdt_minimum_confirmations: int = Field(default=3, ge=1, le=1_000_000)
+    sandbox_usdt_vnd_rate: Decimal = Field(
+        default=Decimal("25000"), gt=0, le=10**12, max_digits=30, decimal_places=18
+    )
+    sepay_bank_code: str = Field(default="FAKEBANK", min_length=1, max_length=32)
+    sepay_account_number: str = Field(default="FAKE-ACCOUNT", min_length=1, max_length=100)
+    sepay_webhook_secret: SecretStr | None = Field(default=None, repr=False)
+    sepay_sandbox_api_token: SecretStr | None = Field(default=None, repr=False)
+    pv2_operator_token: SecretStr | None = Field(default=None, repr=False)
+    pv2_operator_id: int = Field(default=9001, gt=0, lt=2**52)
+
+    @model_validator(mode="after")
+    def sandbox_only(self):
+        target = make_url(self.database_url.get_secret_value())
+        if (
+            self.app_env != "test"
+            or self.external_payments_live_enabled
+            or target.database != "telebotshop_payment_v2_sandbox"
+            or target.host not in {"127.0.0.1", "localhost", "::1"}
+        ):
+            raise ValueError("Payment V2 requires an isolated local sandbox database")
+        for value in [self.sepay_webhook_secret, self.pv2_operator_token]:
+            if value is not None and not 32 <= len(value.get_secret_value().encode()) <= 256:
+                raise ValueError("Sandbox credentials require 32-256 bytes")
+        if self.binance_readonly_enabled and any(
+            value is None
+            for value in [
+                self.binance_api_key,
+                self.binance_api_secret,
+                self.usdt_network,
+                self.usdt_token_contract,
+            ]
+        ):
+            raise ValueError(
+                "Read-only Binance reconciliation requires explicit credentials/network/token"
+            )
+        return self
 
 
 def decode_inventory_key(value: str) -> bytes:

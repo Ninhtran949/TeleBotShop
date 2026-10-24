@@ -25,6 +25,13 @@
 
 ## Database và migrations
 
+Payment V2 mở rộng money contracts theo ADR-0006: credits là integer bounded, USDT/rate dùng
+`Decimal` và ROUND_DOWN tường minh; không float. Customer balances là projection của immutable
+double-entry postings, không cập nhật trực tiếp. Bank/USDT event không là Stars receipt.
+Checkout Credit không tạo invoice/pre-checkout; refund Credit/reversal/cash-refund evidence là
+ba nghiệp vụ riêng. Giữ mọi rule Stars bên trên trong phạm vi phương thức Stars.
+Local/provider mocks, PostgreSQL thật, hosted SePay và actual USDT phải có evidence riêng.
+
 - SQLAlchemy models chỉ ở infrastructure; migrations ở `migrations/`. Table/column `snake_case`, FK/index/unique/check constraints có tên rõ.
 - Dùng FK, check và unique constraint cho money/ownership/allocation invariants; transaction lock cho state changes. Unit tests với fake repository không chứng minh concurrency.
 - Mỗi schema change đi cùng migration và test từ database sạch, cùng upgrade path từ schema đang hỗ trợ. Inspect Alembic autogenerate; không tin output tự sinh là đúng.
@@ -49,7 +56,7 @@ Review theo correctness, simplicity, architecture, security, performance. Featur
 
 ## Toolchain và quality gates
 
-**T01–T13 đã thiết lập toolchain/runtime, PostgreSQL/migrations, identity/permission/audit, catalog/admin, encrypted inventory/resource sources, orders/invoice intents, serialized pre-checkout approval, durable payment/refund receipts, paid allocation/resource work, fenced typed worker/recovery, manual completion, scoped history/dashboard/confirmed resend, encrypted ticket inbox/confirmed assignment/terms và confirmed full refund/hold/reconciliation với các gate local dưới đây. CI chưa có.** Bằng chứng nằm trong [implementation plan](plans/shop/implementation-plan.md); lý do chọn ở [ADR-0004](adr/0004-toolchain-and-quality-gates.md).
+**T01–T13 đã thiết lập toolchain/runtime và commerce/support/refund local. T14 nối public checkout/terms, customer lookup, authenticated webhook/test endpoint và durable metadata notifications qua các gate dưới đây. Telegram test E chưa chạy; CI chưa có.** Bằng chứng nằm trong [implementation plan](plans/shop/implementation-plan.md); lý do chọn ở [ADR-0004](adr/0004-toolchain-and-quality-gates.md).
 
 `pyproject.toml` cấu hình Python/dependency groups, Pytest và Ruff; `uv.lock` là lockfile duy nhất. `.python-version` pin CPython 3.12.15; `tool.uv.required-version` pin uv 0.13.4, build backend pin cùng phiên bản; dev group pin Pytest 9.1.1 và Ruff 0.17.1. T02 pin runtime packages và PostgreSQL image/digest; xem PROJECT/DATABASE. Ruff: target `py312`, line length 100, rules `E`, `F`, `I`, `B`, `UP`; dùng formatter của Ruff. `.agents/` được loại khỏi lint/format để giữ nguyên bytes upstream; Python do repo sở hữu, gồm harness, vẫn được kiểm tra. Thêm rule sau khi có nhu cầu; không disable rule hàng loạt hoặc auto-fix ngoài scope.
 

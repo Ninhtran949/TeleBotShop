@@ -4,16 +4,18 @@ from uuid import uuid4
 
 import pytest
 
+from telebotshop.application.services.access import AccessService
 from telebotshop.application.services.catalog import CatalogService
 from telebotshop.application.services.history import HistoryService
 from telebotshop.application.services.identity import IdentityService
 from telebotshop.domain.errors import AccessDenied, InvalidInput
-from telebotshop.domain.models.identity import CustomerIdentity
+from telebotshop.domain.models.access import Permission
+from telebotshop.domain.models.identity import CustomerIdentity, Role
 from telebotshop.domain.models.inventory import ImportFormat
 from telebotshop.infrastructure.database.uow import unit_of_work
 from tests.fulfillment import paid_work
 from tests.inventory import inventory_service
-from tests.orders import historical_order, order_service
+from tests.orders import historical_order, order_service, setup_orders
 
 
 @pytest.mark.asyncio
@@ -76,3 +78,26 @@ async def test_history_pages_and_staff_dashboard_are_real(migrated_database):
     for value in (-1, True, 10000):
         with pytest.raises(InvalidInput):
             await history.list(101, page=value)
+
+
+@pytest.mark.asyncio
+async def test_customer_lookup_filters_buyer_and_rechecks_current_permission(migrated_database):
+    engine = migrated_database
+    product = await setup_orders(engine, count=2)
+    own = await order_service(engine).create(101, product.id, uuid4())
+    other = await order_service(engine).create(102, product.id, uuid4())
+    factory = partial(unit_of_work, engine)
+    history, access = HistoryService(factory), AccessService(factory)
+    await IdentityService(factory).get_or_create_customer(CustomerIdentity(200, None, "Fake staff"))
+    grant = await access.prepare_permission(9001, 200, Role.ADMIN, Permission.VIEW_ORDERS, True)
+    await access.confirm(9001, grant.id)
+    result = await history.list(200, staff=True, buyer_telegram_id=101)
+    assert tuple(item.id for item in result.items) == (own.id,)
+    assert other.id not in {item.id for item in result.items}
+    assert (await history.list(200, staff=True, buyer_telegram_id=999)).items == ()
+    with pytest.raises(AccessDenied):
+        await history.list(101, buyer_telegram_id=102)
+    revoke = await access.prepare_permission(9001, 200, Role.ADMIN, Permission.VIEW_ORDERS, False)
+    await access.confirm(9001, revoke.id)
+    with pytest.raises(AccessDenied):
+        await history.list(200, staff=True, buyer_telegram_id=101)

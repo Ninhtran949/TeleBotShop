@@ -1,7 +1,7 @@
 from datetime import datetime
-from uuid import UUID, uuid4
+from uuid import UUID, uuid4, uuid5
 
-from sqlalchemy import RowMapping, func, insert, select, text, update
+from sqlalchemy import BigInteger, RowMapping, func, insert, select, text, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -16,6 +16,7 @@ from telebotshop.domain.models.orders import (
     Order,
     OrderAttention,
     OrderStatus,
+    PaymentMethod,
 )
 from telebotshop.infrastructure.database.models.identity import audit_logs, users
 from telebotshop.infrastructure.database.models.inventory import inventory_units
@@ -35,6 +36,9 @@ def order_query():
         orders.c.created_at,
         orders.c.expires_at,
         orders.c.attention_reason,
+        func.coalesce(
+            func.to_jsonb(orders.table_valued()).op("->>")("payment_method"), "TELEGRAM_STARS"
+        ).label("payment_method"),
         order_items.c.id.label("item_id"),
         order_items.c.product_id,
         order_items.c.inventory_unit_id,
@@ -43,12 +47,16 @@ def order_query():
         order_items.c.title,
         order_items.c.description,
         order_items.c.price_stars,
+        func.to_jsonb(order_items.table_valued())
+        .op("->>")("price_credits")
+        .cast(BigInteger)
+        .label("price_credits"),
         order_items.c.quantity,
         invoice_intents.c.payload,
         invoice_intents.c.status.label("invoice_status"),
         invoice_intents.c.attempt_id,
         invoice_intents.c.started_at,
-    ).select_from(orders.join(order_items).join(invoice_intents))
+    ).select_from(orders.join(order_items).outerjoin(invoice_intents))
 
 
 def order_from_row(row: RowMapping) -> Order:
@@ -67,11 +75,13 @@ def order_from_row(row: RowMapping) -> Order:
         row["created_at"],
         row["expires_at"],
         OrderStatus(row["status"]),
-        InvoiceStatus(row["invoice_status"]),
+        InvoiceStatus(row["invoice_status"]) if row["invoice_status"] is not None else None,
         row["payload"],
         row["attempt_id"],
         row["started_at"],
         OrderAttention(row["attention_reason"]) if row["attention_reason"] else None,
+        PaymentMethod(row["payment_method"]),
+        row["price_credits"],
     )
 
 
@@ -149,6 +159,11 @@ class SqlOrderRepository(OrderRepository):
                 buyer_id=order.buyer_id,
                 checkout_action_id=action_id,
                 status=order.status,
+                **(
+                    {"payment_method": order.payment_method}
+                    if order.payment_method == PaymentMethod.WALLET_CREDIT
+                    else {}
+                ),
                 created_at=order.created_at,
                 expires_at=order.expires_at,
             )
@@ -164,16 +179,23 @@ class SqlOrderRepository(OrderRepository):
                 title=order.title,
                 description=order.description,
                 price_stars=order.price_stars,
+                **(
+                    {"price_credits": order.price_credits}
+                    if order.payment_method == PaymentMethod.WALLET_CREDIT
+                    else {}
+                ),
+                currency="XTR" if order.payment_method == PaymentMethod.TELEGRAM_STARS else "CRD",
                 quantity=order.quantity,
             )
         )
-        await self.session.execute(
-            insert(invoice_intents).values(
-                order_id=order.id,
-                payload=order.payload,
-                status=InvoiceStatus.READY,
+        if order.payment_method == PaymentMethod.TELEGRAM_STARS:
+            await self.session.execute(
+                insert(invoice_intents).values(
+                    order_id=order.id,
+                    payload=order.payload,
+                    status=InvoiceStatus.READY,
+                )
             )
-        )
         await self.session.execute(
             update(inventory_units)
             .where(
@@ -360,4 +382,17 @@ class SqlOrderRepository(OrderRepository):
                 correlation_id=uuid4(),
                 changes={"product_id": str(order.product_id)},
             )
+        )
+
+    async def accept_terms(self, order: Order, terms_sha256: str) -> None:
+        await self.session.execute(
+            pg_insert(audit_logs)
+            .values(
+                actor_id=order.buyer_id,
+                action="checkout.terms",
+                target_id=order.id,
+                correlation_id=uuid5(order.id, f"checkout.terms:{terms_sha256}"),
+                changes={"terms_sha256": terms_sha256},
+            )
+            .on_conflict_do_nothing(constraint="uq_audit_logs_correlation")
         )

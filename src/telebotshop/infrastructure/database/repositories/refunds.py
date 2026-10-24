@@ -18,7 +18,10 @@ from telebotshop.infrastructure.database.models.refunds import (
     refund_intents,
     refund_receipts,
 )
-from telebotshop.infrastructure.database.repositories.payments import stored_payment
+from telebotshop.infrastructure.database.repositories.payments import (
+    stars_payment_query,
+    stored_payment,
+)
 
 ACTIVE = ["PENDING", "SENDING", "UNCERTAIN", "SUCCEEDED"]
 
@@ -42,19 +45,28 @@ def view_query():
         .correlate(payments)
         .scalar_subquery()
     )
-    return select(
-        payments.c.id,
-        payments.c.order_id,
-        payments.c.amount,
-        payments.c.currency,
-        payments.c.status.label("payment_status"),
-        payment_verifications.c.payment_id.label("verified"),
-        refund_intents.c.status,
-        refund_intents.c.id.label("intent_id"),
-        func.refund_snapshot(payments.c.id).label("snapshot"),
-    ).select_from(
-        payments.outerjoin(payment_verifications).outerjoin(
-            refund_intents, refund_intents.c.id == latest
+    return (
+        select(
+            payments.c.id,
+            payments.c.order_id,
+            payments.c.amount,
+            payments.c.currency,
+            payments.c.status.label("payment_status"),
+            payment_verifications.c.payment_id.label("verified"),
+            refund_intents.c.status,
+            refund_intents.c.id.label("intent_id"),
+            func.refund_snapshot(payments.c.id).label("snapshot"),
+        )
+        .select_from(
+            payments.outerjoin(payment_verifications).outerjoin(
+                refund_intents, refund_intents.c.id == latest
+            )
+        )
+        .where(
+            func.coalesce(
+                func.to_jsonb(payments.table_valued()).op("->>")("payment_method"), "TELEGRAM_STARS"
+            )
+            == "TELEGRAM_STARS"
         )
     )
 
@@ -79,7 +91,18 @@ class SqlRefundRepository(RefundRepository):
 
     async def payment(self, payment_id):
         row = (
-            (await self.session.execute(select(payments).where(payments.c.id == payment_id)))
+            (
+                await self.session.execute(
+                    stars_payment_query().where(
+                        payments.c.id == payment_id,
+                        func.coalesce(
+                            func.to_jsonb(payments.table_valued()).op("->>")("payment_method"),
+                            "TELEGRAM_STARS",
+                        )
+                        == "TELEGRAM_STARS",
+                    )
+                )
+            )
             .mappings()
             .one_or_none()
         )

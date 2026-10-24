@@ -1,6 +1,6 @@
 # Spec: orders-payments
 
-Status: T06–T13 đã triển khai local order/invoice, serialized approval, durable receipts/paid entitlement, typed delivery và privileged full refund/reconciliation. Polling có durable financial intake; public Buy/core UI và Telegram test acceptance còn T14. Chưa nghiệm thu toàn OP hoặc live Stars. Nguồn: `task.md` §§3,5,8,11. Depends on: [identity-access](identity-access.md), [catalog-inventory](catalog-inventory.md). Quyết định an toàn: [ADR-0002](../../adr/0002-payment-and-fulfillment-safety.md).
+Status: T06–T14 có local order/invoice, approval, receipts/entitlement, delivery/refund/reconciliation và public Buy/terms flow. Polling/webhook dùng chung intake; Telegram test acceptance E còn pending. Chưa nghiệm thu live Stars. Nguồn: `task.md` §§3,5,8,11. Depends on: [identity-access](identity-access.md), [catalog-inventory](catalog-inventory.md). Quyết định an toàn: [ADR-0002](../../adr/0002-payment-and-fulfillment-safety.md).
 
 ## Order và invoice
 
@@ -24,6 +24,9 @@ T06 chưa wire Buy/invoice vào polling trước khi T07/T08 có intake an toàn
 ## Pre-checkout contract
 
 Check order ownership, active product, snapshot amount, `XTR`, invoice payload/order reference, order/payment state và reservation còn thuộc order. Dùng DB timeout/budget ngắn; trả `answerPreCheckoutQuery` kịp giới hạn Telegram **10 giây**, không chờ worker hoặc lock không giới hạn. Reject có thông báo Việt, không expose internals.
+
+Khi runtime tắt Stars, pre-checkout trả false trước UoW, kể cả invoice còn hạn hoặc query
+đã approved trước đó. Không xóa approval, đổi TTL hoặc ngắt intake payment/refund lịch sử.
 
 Serialize approval theo order: persist pre-checkout query ID đã được chấp thuận; cùng query ID được xử lý idempotent, query khác cho order đã approved bị reject. Không tự reset approval để approve invoice thứ hai khi chưa biết payment outcome; khách muốn checkout mới phải có action/order mới. Cách này giảm double-charge từ hai invoice cùng order; extra receipt vẫn phải được lưu nếu xảy ra.
 
@@ -149,6 +152,25 @@ hai physical connections cho refund-vs-worker/resend/manual và duplicate confir
 0013 giữ nguyên predecessor data/functions, từ chối downgrade khi có refund history.
 Đây là local/mock evidence; external Stars refund vẫn là gate T14, không tự đặt business
 refund window hoặc tuyên bố đã thu hồi tài nguyên sau refund.
+
+## T14 public checkout và transport
+
+Catalog availability là finite AVAILABLE count hoặc metadata về current source đúng type,
+không decrypt. Buy action tạo own order/quantity-one/price snapshot bằng use case hiện có;
+nonce chỉ dedup, không authority. Reopen/cancel qua current owner check. Không có terms
+snapshot thì không nhận public checkout. Confirmation gắn order + 96-bit digest prefix;
+changed terms từ chối trước claim. Full SHA-256 consent audit idempotent trong DB trước
+invoice send; không giữ transaction qua Telegram. Nonfinite invoice recheck pinned resource.
+
+`TELEGRAM_ENVIRONMENT` main/test độc lập APP_ENV; fixed SDK endpoint áp dụng ingress,
+invoice, worker và refunds. Shared dispatcher ở polling/authenticated webhook. Webhook
+secret kiểm tra trước body, cap/timeouts/concurrency bounded; SDK Update validate trước
+handler. Successful-payment/refunded-payment commit trước HTTP 200, failed commit trả 503;
+replay giữ nguyên charge dedup. Không automatic set/delete webhook hoặc drop updates.
+
+Native core acceptance đi từ public dispatcher Buy→invoice→approval→receipt→typed worker/
+manual→history/support→refund đủ năm types và reusable text/document. Không seed payable
+invoice trong core test; Bot API vẫn mock, nên không thay evidence E.
 
 ## Acceptance criteria
 

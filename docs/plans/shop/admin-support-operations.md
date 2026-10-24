@@ -1,6 +1,6 @@
 # Spec: admin-support-operations
 
-Status: T03–T13 triển khai local quyền/settings, catalog/kho, typed/manual delivery, scoped history/dashboard/resend, encrypted support tickets/terms và confirmed full refund/reconciliation. Operations/live gates còn theo tasks sở hữu; chưa nghiệm thu toàn AO-01..06. Nguồn: `task.md` §§6,9,10,11,13. Depends on: identity-access, catalog-inventory, orders-payments, fulfillment.
+Status: T03–T14 triển khai local core quyền/settings, catalog/kho, delivery/history/support/refund, customer lookup, bounded authenticated webhook và durable operational notifications. Telegram test E và production/release gates chưa nghiệm thu. Nguồn: `task.md` §§6,9,10,11,13. Depends on: identity-access, catalog-inventory, orders-payments, fulfillment.
 
 ## Admin và support
 
@@ -75,6 +75,33 @@ không fetch URL/UNC, không tự bịa policy hoặc nội dung trống. Không
 sẵn sàng; configured file lỗi/placeholder từ chối polling trước Bot/DB, fixed sanitized error.
 Owner chọn temp.md nhưng còn placeholder nên phải hoàn thiện trước khi kích hoạt. Terms
 acceptance gate tại checkout và live Telegram thuộc T14; refund/reconciliation thuộc T13.
+
+## T14 core navigation và alerts
+
+Customer có browse/search/account/orders/tickets/paysupport/terms, Buy→terms/invoice và
+own checkout reopen/cancel. Admin theo current grants có products/inventory/resources/manual,
+orders/dashboard/Customers, tickets, refunds, access/settings. Customers dùng numeric
+Telegram ID, current orders.read trong use case, buyer UUID filter, 5/trang và 30 ngày;
+không username lookup hoặc secret access. Discounts/referral/reports nâng cao theo T15–T17,
+không render menu giả trước capability thật.
+
+Worker hiện có discover metadata-only notifications mỗi 10s, tối đa 10/loại/tổng 100;
+drain một intent/lượt. Operational alerts gửi current persisted Owner: payment review,
+invoice uncertain, paid attention, failed/uncertain delivery, manual waiting, backlog >5m,
+finite low-stock (một/ngày UTC/sản phẩm), refund uncertain. Support OPEN latest customer
+post báo Owner; latest staff reply báo đúng ticket customer. Staff dùng assigned inbox,
+không thêm fanout hoặc copy ticket body. Current source/recipient được recheck trước send;
+obsolete→SUPPRESSED. Alert không tự thay financial state.
+
+Durable dedup + SKIP LOCKED + commit SENDING trước network; result lưu transaction khác.
+FAILED known refusal hoặc UNCERTAIN unknown/crash đều không tự retry. Late observation
+không clear uncertainty, không reset history. Fixed metadata/logs và business inbox để
+operator kiểm tra; chưa có alert retry UI. Notification failure không chặn paid worker.
+
+Webhook cần explicit secret, stream cap 256KiB/read2s/dispatch20s/32slots; HTTP health
+vẫn riêng không secrets. Account/BotFather/test endpoint/keys/terms/optional HTTPS registration
+và checklist E ở [BOTFATHER-SETUP](../../BOTFATHER-SETUP.md). Owner chưa setup; chưa chạy
+Telegram thật, restore hoặc production deployment. APP_ENV=test không tự chọn test Bot API.
 
 ## Operational readiness
 

@@ -33,6 +33,7 @@ async def test_rate_limit_blocks_before_use_case_and_bounds_memory(
         resends=AsyncMock(),
         support=AsyncMock(),
         refunds=AsyncMock(),
+        checkout=AsyncMock(),
     )
     for _ in range(10):
         await dispatcher.feed_update(telegram.bot, message_update("/start"))
@@ -67,6 +68,7 @@ async def test_database_errors_do_not_expose_secret_profile_or_report_success(
         resends=AsyncMock(),
         support=AsyncMock(),
         refunds=AsyncMock(),
+        checkout=AsyncMock(),
     )
     await dispatcher.feed_update(telegram.bot, message_update("/start"))
     assert "fake_secret_profile_payload" not in caplog.text
@@ -97,6 +99,7 @@ async def test_unknown_callback_does_not_mutate_and_has_safe_navigation_hint(
         resends=AsyncMock(),
         support=AsyncMock(),
         refunds=AsyncMock(),
+        checkout=AsyncMock(),
     ).feed_update(telegram.bot, callback_update("forged:owner:101"))
     assert not identity.get_my_profile.called and not access.confirm.called
     assert "/start" in telegram.calls[-1].text

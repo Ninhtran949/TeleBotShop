@@ -6,8 +6,8 @@ from telebotshop.application.services.identity import IdentityService
 from telebotshop.domain.models.identity import CustomerIdentity
 
 
-def home_keyboard() -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup(
+def home_keyboard(wallet_enabled: bool = False) -> InlineKeyboardMarkup:
+    keyboard = InlineKeyboardMarkup(
         inline_keyboard=[
             [
                 InlineKeyboardButton(text="🛍️ Cửa hàng", callback_data="shop:root"),
@@ -25,9 +25,14 @@ def home_keyboard() -> InlineKeyboardMarkup:
             ],
         ]
     )
+    if wallet_enabled:
+        keyboard.inline_keyboard.insert(
+            2, [InlineKeyboardButton(text="Ví của tôi", callback_data="wal:home")]
+        )
+    return keyboard
 
 
-def create_customer_router(identity: IdentityService) -> Router:
+def create_customer_router(identity: IdentityService, *, wallet_enabled: bool = False) -> Router:
     router = Router(name="customer_identity")
 
     @router.message(CommandStart())
@@ -39,7 +44,9 @@ def create_customer_router(identity: IdentityService) -> Router:
             CustomerIdentity(actor.id, actor.username, actor.full_name, actor.language_code or "vi")
         )
         await message.answer(
-            "Chào mừng bạn! Chọn mục bên dưới.", reply_markup=home_keyboard(), parse_mode=None
+            "Chào mừng bạn! Chọn mục bên dưới.",
+            reply_markup=home_keyboard(wallet_enabled),
+            parse_mode=None,
         )
 
     @router.callback_query(F.data.in_({"home", "profile", "cancel"}))
@@ -47,7 +54,7 @@ def create_customer_router(identity: IdentityService) -> Router:
         if not isinstance(query.message, Message):
             return
         text = "Chào mừng bạn! Chọn mục bên dưới."
-        keyboard = home_keyboard()
+        keyboard = home_keyboard(wallet_enabled)
         if query.data == "profile":
             profile = await identity.get_my_profile(query.from_user.id)
             text = (

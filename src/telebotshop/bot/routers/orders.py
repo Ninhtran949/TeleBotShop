@@ -17,6 +17,7 @@ from telebotshop.domain.errors import InvalidInput
 from telebotshop.domain.models.access import Permission, can
 from telebotshop.domain.models.catalog import Page, validate_page
 from telebotshop.domain.models.history import OrderView, ResendAction
+from telebotshop.domain.models.identity import validate_telegram_id
 
 STATUS_LABELS = {
     "AWAITING_PAYMENT": "Chờ thanh toán",
@@ -48,11 +49,17 @@ def navigation(staff=False) -> list[list[InlineKeyboardButton]]:
     ]
 
 
-def page_view(page: Page[OrderView], staff: bool):
+def page_view(page: Page[OrderView], staff: bool, *, buyer_telegram_id: int | None = None):
     mode, detail = ("a", "s") if staff else ("l", "v")
+    if buyer_telegram_id is not None:
+        mode = f"u:{buyer_telegram_id}_"
+    else:
+        mode += ":"
     text = (
         "Đơn shop · 30 ngày gần nhất" if staff else "Đơn hàng của bạn"
     ) + f" · Trang {page.page + 1}"
+    if buyer_telegram_id is not None:
+        text += f"\nKhách mua (Telegram ID): {buyer_telegram_id}"
     rows = [
         [
             InlineKeyboardButton(
@@ -65,19 +72,24 @@ def page_view(page: Page[OrderView], staff: bool):
         text += "\nChưa có đơn trong trang này."
     if page.page:
         rows.append(
-            [InlineKeyboardButton(text="Trang trước", callback_data=f"ord:{mode}:{page.page - 1}")]
+            [InlineKeyboardButton(text="Trang trước", callback_data=f"ord:{mode}{page.page - 1}")]
         )
     if page.has_more:
         rows.append(
-            [InlineKeyboardButton(text="Trang sau", callback_data=f"ord:{mode}:{page.page + 1}")]
+            [InlineKeyboardButton(text="Trang sau", callback_data=f"ord:{mode}{page.page + 1}")]
         )
     return text, InlineKeyboardMarkup(inline_keyboard=rows + navigation(staff)[1:])
 
 
 def detail_view(view: OrderView, staff: bool, may_resend: bool):
+    price = (
+        f"{view.price_credits} credit"
+        if view.price_credits is not None
+        else f"{view.price_stars} Stars"
+    )
     text = (
         f"Đơn: {view.id}\n{view.title}\nSKU: {view.sku}\n"
-        f"Giá lúc mua: {view.price_stars} Stars\n"
+        f"Giá lúc mua: {price}\n"
         f"Trạng thái: {STATUS_LABELS.get(view.status, 'Chưa xác định')}\n"
         f"Tạo: {view.created_at:%d/%m/%Y %H:%M} UTC"
     )
@@ -89,6 +101,15 @@ def detail_view(view: OrderView, staff: bool, may_resend: bool):
         text += "\nGửi lại: " + RESEND_LABELS[view.resend_state]
     rows = navigation(staff)
     if not staff:
+        if view.status == "AWAITING_PAYMENT":
+            rows.insert(
+                0,
+                [
+                    InlineKeyboardButton(
+                        text="Thanh toán / trạng thái", callback_data=f"ck:v:{view.id.hex}"
+                    )
+                ],
+            )
         rows.insert(
             0, [InlineKeyboardButton(text="Hỗ trợ đơn này", callback_data=f"sp:order:{view.id}")]
         )
@@ -164,6 +185,7 @@ def create_order_router(
         text = (
             f"Tổng quan đơn · từ {report.since:%d/%m/%Y %H:%M} UTC\n"
             f"Số đơn: {report.total}\nGiá trị đơn đã thanh toán: {report.paid_stars} Stars\n"
+            f"Giá trị đơn bằng credit: {report.paid_credits} credit\n"
             "Theo giá lúc mua, chưa trừ hoàn tiền.\n"
         )
         text += "\n".join(
@@ -171,6 +193,30 @@ def create_order_router(
             for status, count in report.status_counts
         )
         return text, InlineKeyboardMarkup(inline_keyboard=navigation(True))
+
+    async def customer(actor_id, buyer_id, page):
+        validate_telegram_id(buyer_id)
+        validate_page(page)
+        return page_view(
+            await history.list(actor_id, page=page, staff=True, buyer_telegram_id=buyer_id),
+            True,
+            buyer_telegram_id=buyer_id,
+        )
+
+    @router.message(Command("customer"))
+    async def customer_command(message: Message, command: CommandObject) -> None:
+        if message.from_user is None:
+            return
+        await access.authorize(message.from_user.id, Permission.VIEW_ORDERS)
+        try:
+            parts = (command.args or "").split()
+            if len(parts) not in {1, 2} or len(command.args or "") > 64:
+                raise ValueError
+            buyer_id, page = int(parts[0]), int(parts[1]) if len(parts) == 2 else 0
+        except ValueError:
+            raise InvalidInput("Invalid customer lookup") from None
+        text, keyboard = await customer(message.from_user.id, buyer_id, page)
+        await message.answer(text, reply_markup=keyboard, parse_mode=None)
 
     @router.message(Command("dashboard"))
     async def dashboard_command(message: Message) -> None:
@@ -185,7 +231,7 @@ def create_order_router(
         actor_id = query.from_user.id
         try:
             _, operation, reference = (query.data or "").split(":")
-            if operation in {"a", "s", "t", "d"}:
+            if operation in {"a", "s", "t", "d", "k", "u"}:
                 await access.authorize(actor_id, Permission.VIEW_ORDERS)
             await query.answer()
             if operation in {"l", "a"}:
@@ -217,6 +263,15 @@ def create_order_router(
                 )
             elif operation == "d" and reference == "0":
                 text, keyboard = await dashboard(actor_id)
+            elif operation == "k" and reference == "0":
+                text, keyboard = (
+                    "Tra cứu đơn của khách trong 30 ngày gần nhất:\n/customer TELEGRAM_ID\n"
+                    "Chỉ dùng Telegram ID dạng số; không dùng username.",
+                    InlineKeyboardMarkup(inline_keyboard=navigation(True)),
+                )
+            elif operation == "u":
+                buyer_id, page = reference.split("_")
+                text, keyboard = await customer(actor_id, int(buyer_id), int(page))
             else:
                 raise ValueError
         except ValueError:

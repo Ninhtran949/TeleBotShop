@@ -11,12 +11,16 @@ orders = sa.Table(
     ),
     sa.Column("checkout_action_id", sa.Uuid, nullable=False),
     sa.Column("status", sa.String(32), nullable=False),
+    sa.Column("payment_method", sa.String(32), nullable=False, server_default="TELEGRAM_STARS"),
     sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
     sa.Column("expires_at", sa.DateTime(timezone=True), nullable=False),
     sa.Column("closed_at", sa.DateTime(timezone=True)),
     sa.Column("close_reason", sa.String(32)),
     sa.Column("attention_reason", sa.String(32)),
     sa.UniqueConstraint("buyer_id", "checkout_action_id", name="uq_orders_buyer_action"),
+    sa.CheckConstraint(
+        "payment_method IN ('TELEGRAM_STARS','WALLET_CREDIT')", name="ck_orders_method"
+    ),
     sa.CheckConstraint(
         "status IN ('AWAITING_PAYMENT', 'EXPIRED', 'PAID', 'FULFILLING', "
         "'DELIVERED', 'FAILED', 'REFUNDED')",
@@ -63,7 +67,8 @@ order_items = sa.Table(
     sa.Column("product_type", sa.String(32), nullable=False),
     sa.Column("title", sa.String(80), nullable=False),
     sa.Column("description", sa.String(1200), nullable=False),
-    sa.Column("price_stars", sa.BigInteger, nullable=False),
+    sa.Column("price_stars", sa.BigInteger),
+    sa.Column("price_credits", sa.BigInteger),
     sa.Column("quantity", sa.Integer, nullable=False),
     sa.Column("currency", sa.String(3), nullable=False, server_default="XTR"),
     sa.UniqueConstraint("order_id", name="uq_order_items_order"),
@@ -74,7 +79,13 @@ order_items = sa.Table(
         name="fk_order_items_unit_product",
     ),
     sa.CheckConstraint("quantity = 1", name="ck_order_items_quantity"),
-    sa.CheckConstraint("currency = 'XTR' AND price_stars > 0", name="ck_order_items_price"),
+    sa.CheckConstraint(
+        "(currency='XTR' AND price_stars IS NOT NULL AND price_stars>0 "
+        "AND price_credits IS NULL) OR "
+        "(currency='CRD' AND price_stars IS NULL AND price_credits IS NOT NULL "
+        "AND price_credits BETWEEN 1 AND 999999999999999)",
+        name="ck_order_items_price",
+    ),
     sa.CheckConstraint(
         "(product_type IN ('UNIQUE_KEY', 'LICENSE') AND inventory_unit_id IS NOT NULL) OR "
         "(product_type IN ('DIGITAL_FILE', 'REUSABLE_RESOURCE', 'MANUAL_FULFILLMENT') "

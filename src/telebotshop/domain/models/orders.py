@@ -40,6 +40,11 @@ class InvoiceStatus(StrEnum):
     CANCELLED = "CANCELLED"
 
 
+class PaymentMethod(StrEnum):
+    TELEGRAM_STARS = "TELEGRAM_STARS"
+    WALLET_CREDIT = "WALLET_CREDIT"
+
+
 @dataclass(frozen=True, repr=False)
 class Order:
     id: UUID
@@ -51,16 +56,18 @@ class Order:
     product_type: ProductType
     title: str
     description: str
-    price_stars: int
+    price_stars: int | None
     quantity: int
     created_at: datetime
     expires_at: datetime
     status: OrderStatus
-    invoice_status: InvoiceStatus
-    payload: str
+    invoice_status: InvoiceStatus | None
+    payload: str | None
     attempt_id: UUID | None = None
     invoice_started_at: datetime | None = None
     attention_reason: OrderAttention | None = None
+    payment_method: PaymentMethod = PaymentMethod.TELEGRAM_STARS
+    price_credits: int | None = None
 
 
 @dataclass(frozen=True, repr=False)

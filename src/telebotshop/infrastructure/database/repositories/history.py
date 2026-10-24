@@ -2,7 +2,7 @@ from dataclasses import asdict
 from datetime import datetime
 from uuid import UUID, uuid5
 
-from sqlalchemy import case, func, insert, select, update
+from sqlalchemy import BigInteger, case, func, insert, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from telebotshop.application.ports.history import HistoryRepository
@@ -39,6 +39,10 @@ def history_query(buyer_id: UUID | None = None, since: datetime | None = None):
         order_items.c.sku,
         order_items.c.product_type,
         order_items.c.price_stars,
+        func.to_jsonb(order_items.table_valued())
+        .op("->>")("price_credits")
+        .cast(BigInteger)
+        .label("price_credits"),
         orders.c.status,
         orders.c.created_at,
         users.c.telegram_id,
@@ -72,6 +76,7 @@ def order_view(row) -> OrderView:
         DeliveryState(row.state) if row.state is not None else None,
         bool(row.hold),
         row.resend_state,
+        row.price_credits,
     )
 
 
@@ -111,11 +116,31 @@ class SqlHistoryRepository(HistoryRepository):
             .where(
                 orders.c.created_at >= since,
                 select(payments.c.id)
-                .where(payments.c.order_id == orders.c.id, payments.c.status == "MATCHED")
+                .where(
+                    payments.c.order_id == orders.c.id,
+                    payments.c.status == "MATCHED",
+                    payments.c.payment_method == "TELEGRAM_STARS",
+                )
                 .exists(),
             )
         )
-        return OrderDashboard(since, sum(count for _, count in counts), paid, tuple(counts))
+        paid_credits = await self.session.scalar(
+            select(func.coalesce(func.sum(order_items.c.price_credits), 0))
+            .select_from(orders.join(order_items))
+            .where(
+                orders.c.created_at >= since,
+                select(payments.c.id)
+                .where(
+                    payments.c.order_id == orders.c.id,
+                    payments.c.status == "MATCHED",
+                    payments.c.payment_method == "WALLET_CREDIT",
+                )
+                .exists(),
+            )
+        )
+        return OrderDashboard(
+            since, sum(count for _, count in counts), paid, tuple(counts), paid_credits
+        )
 
     async def resend(self, action_id, *, for_update=False):
         query = select(resend_actions).where(resend_actions.c.id == action_id)

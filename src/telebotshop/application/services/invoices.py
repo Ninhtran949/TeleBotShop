@@ -4,6 +4,7 @@ from telebotshop.application.ports.invoices import InvoiceSender
 from telebotshop.application.ports.uow import UnitOfWorkFactory
 from telebotshop.application.services.orders import close_unpaid, owned_order
 from telebotshop.domain.errors import InvalidAction
+from telebotshop.domain.models.inventory import FINITE_TYPES
 from telebotshop.domain.models.orders import (
     CloseReason,
     InvoiceDelivery,
@@ -32,7 +33,12 @@ class InvoiceService:
                 return result
             if order.invoice_status != InvoiceStatus.READY:
                 return order
-            if not await work.orders.has_reservation(order):
+            available = (
+                await work.orders.has_reservation(order)
+                if order.product_type in FINITE_TYPES
+                else await work.resources.for_order(order) is not None
+            )
+            if not available:
                 raise InvalidAction("Reservation unavailable")
             attempt_id = uuid4()
             await work.orders.claim_invoice(order, attempt_id)

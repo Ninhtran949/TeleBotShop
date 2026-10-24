@@ -114,6 +114,16 @@ def stock_summary(row: RowMapping, threshold: int) -> StockSummary:
 
 
 class SqlInventoryRepository(InventoryRepository):
+    async def available_count(self, product_id: UUID) -> int:
+        return await self.session.scalar(
+            select(func.count())
+            .select_from(inventory_units)
+            .where(
+                inventory_units.c.product_id == product_id,
+                inventory_units.c.status == InventoryState.AVAILABLE,
+            )
+        )
+
     def __init__(self, session: AsyncSession) -> None:
         self.session = session
 

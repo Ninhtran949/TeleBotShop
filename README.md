@@ -1,6 +1,7 @@
 # TeleBotShop
 
-Shop Telegram bán tài nguyên số có quyền phân phối, thanh toán Stars và giao hàng an toàn.
+Shop Telegram bán tài nguyên số có quyền phân phối và giao hàng an toàn. Payment V2 local/sandbox
+dùng **Bank/VietQR hoặc USDT để nạp ví, Credit để mua hàng**; Stars đang PAUSED/BLOCKED.
 Trạng thái và task đang được thực hiện: [PROJECT](docs/PROJECT.md),
 [implementation plan](docs/plans/shop/implementation-plan.md).
 
@@ -13,8 +14,19 @@ T10 thêm nguồn mã hóa theo phiên bản cho file/reusable/manual, document 
 completion có bằng chứng/xác nhận. T11 thêm lịch sử đơn, dashboard staff và resend cùng
 entitlement có xác nhận. T12 thêm ticket mã hóa, phân công/phản hồi theo quyền, `/paysupport`
 và điều khoản do Owner cung cấp. T13 thêm full refund có xác nhận/ledger/hold, intake refund
-event và đối soát bằng chứng Stars. Customer Buy/navigation còn core UI T14; chưa có production webhook.
-Telegram API trong tests là mock; PostgreSQL integration dùng DB thật.
+event và đối soát bằng chứng Stars. T14 nối public Buy/đồng ý terms/invoice, tra cứu khách,
+test endpoint, authenticated webhook và thông báo vận hành. Telegram API trong tests là mock;
+PostgreSQL integration dùng DB thật. **T14 chức năng thay Stars đã PASS** theo
+[nghiệm thu Payment V2](docs/plans/shop/t14-replacement-acceptance.md), gồm actual Telegram Test
+delivery/refund; các gate Stars cũ, hosted payment providers và production còn riêng.
+Owner chưa có bot/account: bắt đầu tại [BOTFATHER-SETUP](docs/BOTFATHER-SETUP.md).
+
+Payment V2 có [ADR-0006](docs/adr/0006-payment-v2-wallet.md),
+[spec/plan](docs/plans/shop/payment-v2.md) và [runbook](docs/PAYMENT-V2.md).
+Checkout Credit dùng một transaction PostgreSQL để trừ ví, ghi payment, cấp entitlement và
+durable work; không cần invoice, pre-checkout hoặc Telegram successful_payment. Bộ Stars
+cũ được giữ lại; E3/E4 Stars lịch sử vẫn chưa đạt, không chặn T14 chức năng theo quyết định Owner
+mới. Không có nhận tiền thật hoặc deployment ở phase này.
 
 ## Môi trường development
 
@@ -79,7 +91,7 @@ Operator có thể chạy một batch tối đa 100 đơn hết hạn và 100 in
 uv run --no-sync telebotshop expire-orders
 ```
 
-Lệnh cần DATABASE_URL/schema head `0013_refunds`, không cần BOT_TOKEN/OWNER_ID hoặc
+Lệnh cần DATABASE_URL/schema head `0014_notifications`, không cần BOT_TOKEN/OWNER_ID hoặc
 inventory keys; không gửi Telegram. TTL reservation 15 phút theo DB time. Claim SENDING
 quá 30 giây chuyển UNCERTAIN, giữ attempt và không tự gửi lại. Chạy lặp theo lịch vận hành
 khi có checkout; T06 chưa có scheduler/worker hoặc thao tác tự reconcile/resend invoice.
@@ -91,7 +103,7 @@ approval/query ID giữ bền vững, chỉ gia hạn một lần từ DB time. 
 kéo dài TTL; query khác cho order đã approved bị từ chối. API timeout không reset approval.
 DB/validation budget 4s, API answer budget 3s; kiểm thử local không thay Telegram test/live.
 T08 nối runtime vào checker thật cùng durable successful-payment intake. Approval không
-tạo PAID/allocation. Catalog vẫn chưa có Buy; core navigation/checkout UI thuộc T14.
+tạo PAID/allocation. T14 public Buy dùng các use cases này; không gọi delivery trong handler receipt.
 
 Polling dùng native aiogram concurrent update tasks, cap 32, để một download import không
 chặn pre-checkout. Mỗi task có UoW riêng; shutdown đợi tối đa 10s rồi cancel/drain trước
@@ -100,9 +112,9 @@ khi nâng SDK. T08 persist receipt trước khi native polling yield/advance off
 dừng polling và không confirm receipt đó. Re-delivery dùng charge ID để dedup; receipt
 handler không send/decrypt/giao hàng. Chưa có nghiệm thu tải/latency Telegram hoặc production ingress.
 
-## Worker giao hàng (T09–T10)
+## Worker giao hàng và thông báo (T09–T14)
 
-Sau migration head `0013_refunds`, đặt BOT_TOKEN/OWNER_ID, DATABASE_URL và inventory
+Sau migration head `0014_notifications`, đặt BOT_TOKEN/OWNER_ID, DATABASE_URL và inventory
 keys qua environment bảo vệ như polling. Command có thể gửi secret tới buyer; chỉ operator
 chạy với đúng bot/environment và authorization gửi thực tế. Automated tests dùng mock.
 
@@ -115,7 +127,7 @@ schema, persisted Owner và key verifiers trước tạo Bot. Startup/mỗi lư�
 attempts hết lease; claim một due work bằng SKIP LOCKED rồi commit riêng. Trước decrypt/send
 recheck order/payment/destination/exact allocated unit/type/hold/token/lease. Commit SENDING
 trước HTTP; không giữ DB transaction trong network call. Gửi đúng nguyên văn key/license,
-plain text, không preview hoặc raw payload log. Đây chưa là public Buy/full shop acceptance.
+plain text, không preview hoặc raw payload log. Local/mock checks chưa là Telegram test acceptance.
 
 | Environment setting | Default / giới hạn |
 | --- | --- |
@@ -133,9 +145,16 @@ Late/stale results chỉ là sanitized observations khi không còn quyền áp 
 
 Ctrl+C/cancellation đóng Bot/engine; interrupted SENDING được recovery thành UNCERTAIN khi
 hết lease. Giữ DB/host UTC clocks đồng bộ; production clock/signal/load checks còn T18.
-Alerts hiện là durable attention/audit + warning `delivery_attention` với work ID/code; staff
-Telegram notification routing thuộc T14. Refund/reconcile/resend UI chưa có. Không reset
-SENDING/UNCERTAIN hoặc lấy key khác để sửa lỗi giao; cần authorized reconciliation ở task sau.
+T14 thêm durable metadata-only notifications qua chính worker này: discover mỗi 10s,
+tối đa 10 nguồn/loại và 100/lượt, drain một thông báo/lượt. Alert tài chính/manual/backlog/
+low-stock gửi current persisted Owner; latest staff reply của ticket OPEN gửi đúng customer.
+Không push nội dung ticket/key/charge/evidence; staff dùng inbox hiện có. Low-stock một lần/
+ngày UTC/sản phẩm, backlog quá 5 phút. Trước send kiểm tra lại quyền/người nhận/source.
+Known refusal là FAILED; unknown/expired SENDING là UNCERTAIN, không tự gửi lại kể cả
+rate-limit rejection. Kết quả muộn chỉ thêm observation, không clear uncertainty. Kiểm tra
+fixed logs/ledger `notifications` và business inbox; chưa có màn hình retry alert.
+Không reset SENDING/UNCERTAIN hoặc lấy key khác để sửa lỗi giao. Refund/reconcile/resend
+dùng các confirmation và positive-evidence flows đã có, không sửa ledger trực tiếp.
 
 ## Development polling và quyền Owner
 
@@ -163,7 +182,9 @@ Trong private chat:
   staff có `catalog.manage` thấy Sản phẩm, `inventory.manage` thấy Kho hàng.
   T10 thêm Nguồn giao hàng và Giao hàng thủ công theo quyền hiện tại.
   T11 thêm Đơn hàng/Tổng quan đơn; T12 thêm Ticket theo `tickets.manage`;
-  T13 thêm Hoàn tiền Stars theo `payments.refund` hiện tại.
+  T13 thêm Hoàn tiền Stars theo `payments.refund` hiện tại. T14 thêm **Khách hàng** và
+  `/customer TELEGRAM_ID [PAGE]` theo current `orders.read`, lọc đúng buyer, 5 đơn/trang,
+  30 ngày gần nhất; PAGE bắt đầu từ 0. Không tìm theo username hoặc cho đọc secrets.
 - Owner dùng `/grant <Telegram_ID> <ADMIN|SUPPORT> <permission>` hoặc `/revoke` với cùng
   ba tham số, sau đó bấm **Xác nhận** trong 10 phút. Người nhận phải `/start` trước;
   lấy ID của chính mình từ Tài khoản. Mỗi lần chỉ đổi một permission.
@@ -233,9 +254,10 @@ hết hạn logic sau 10 phút hoặc mất khi restart/eviction; mở lại `/s
 
 Product metadata vẫn chỉ là dữ liệu công khai. Private key/license nằm trong inventory mã hóa
 của T05; file/reusable/manual payload thuộc T10. Không tự fetch URL, không hiển thị số stock
-giả hoặc nhận đơn qua polling; finite reservation có ở T06, public Buy/navigation thuộc core UI T14.
+giả. T14 nút **Mua** chỉ hiện khi có finite AVAILABLE stock hoặc nguồn nonfinite phù hợp.
 Ảnh/catalog thông báo trạng thái thật hiện có, chưa là Telegram external acceptance.
-`APP_ENV=test` không tự đổi Bot API sang Stars test server; setup chính thức thuộc T14.
+`APP_ENV=test` không tự đổi Bot API sang Stars test server; đặt riêng
+`TELEGRAM_ENVIRONMENT=test` với bot tạo trong Test Server. Xem [setup](docs/BOTFATHER-SETUP.md).
 
 ## Inventory mã hóa và import (T05)
 
@@ -385,8 +407,9 @@ kể cả chưa có mã đơn; không tự suy receipt hoặc credit tài khoả
   (khách), `/staff_close TICKET_ID` (staff) và phân công đều cần confirmation trong 10 phút;
   kiểm tra lại actor, quyền, assignment và phiên bản ticket. Ticket đã đóng không nhận tin mới.
 
-Phản hồi được lưu bền vững trong thread; khách mở/làm mới ticket để đọc. Chưa có push
-notification; UI chỉ xác nhận đã lưu. Support contact vẫn dùng `/setsupport username`
+Phản hồi được lưu bền vững trong thread; khách mở/làm mới ticket để đọc. T14 worker gửi
+thông báo metadata về latest reply của ticket OPEN; UI chỉ xác nhận đã lưu, không hứa
+đã push thành công. Support contact vẫn dùng `/setsupport username`
 với Owner confirmation; mặc định chưa cấu hình, bot không xác minh account đó thuộc shop.
 
 **Owner setup T12:** không cần thêm key/provider/server cho local tests. Owner đã chọn
@@ -454,6 +477,32 @@ lệnh này khi chưa chủ động cho phép hiệu ứng đó. API contracts t
 [RefundedPayment](https://core.telegram.org/bots/api#refundedpayment) và
 [StarTransaction](https://core.telegram.org/bots/api#startransaction).
 
+## Public checkout và webhook (T14)
+
+Trong chi tiết sản phẩm có sẵn hàng/nguồn, **Mua** tạo đơn quantity-one và giữ finite stock
+15 phút; giá lấy từ DB và lưu snapshot. Replay cùng nút dùng cùng order/action. Trang đơn
+cho đọc Điều khoản, đồng ý rồi mở invoice XTR, làm mới, hủy đơn chưa trả hoặc mở support.
+Thiếu terms thì không nhận public checkout; terms đổi trong lúc confirmation mở thì phải
+mở lại. SHA-256 terms đã đồng ý được lưu audit, không lưu nội dung terms/secret vào audit.
+
+Invoice sent chưa là paid. DB receipt đúng mới tạo allocation/work; worker gửi riêng.
+Invoice SENDING/UNCERTAIN không có nút phát lại, hướng dẫn `/paysupport`, không tạo đơn
+khác để sửa ambiguous send. `/checkout ORDER_ID` hoặc Đơn hàng mở lại đơn của chính buyer.
+Hủy/expiry không xóa receipt/history; late payment vẫn được giữ để đối soát.
+
+`TELEGRAM_ENVIRONMENT=main` là mặc định; test cần đặt tường minh `test` với token test.
+`telebotshop webhook` thay polling và đồng thời có health endpoints, cần `WEBHOOK_SECRET`
+32–256 allowed ASCII, schema/Owner/keys/terms hợp lệ. Route POST `/telegram/webhook` kiểm
+tra đúng một secret header trước đọc body, JSON unique fields, cap 256 KiB kể cả stream,
+read timeout 2s, dispatch 20s và tối đa 32 concurrent requests. Response/logs cố định không
+echo payload hoặc secrets; processing/commit errors trả 503. Financial receipt/refund commit
+trước 200. Aiogram parse nằm trong infrastructure, HTTP adapter không import Telegram SDK.
+
+HTTP health riêng vẫn chạy bằng `telebotshop http`, không cần bot secrets. App không tự
+set/delete webhook. Setup/account, external registration và evidence checklist:
+[BOTFATHER-SETUP](docs/BOTFATHER-SETUP.md). Telegram thật chưa được agent gọi;
+production roles/TLS/shared rate limits/restore/deploy thuộc T18.
+
 ## PostgreSQL integration tests
 
 Test service tách dev DB, dùng tmpfs và marker bên ngoài fixture:
@@ -508,6 +557,12 @@ python -B -m unittest discover -s tests -p test_harness.py -v
 
 `uv audit --locked` kiểm tra advisories của dependency graph bằng uv 0.13.4 (command còn
 experimental). CI, Telegram test/live, production image/deployment và backup/restore chưa thực hiện.
+
+T14 có bộ nghiệm thu Telegram Test Server qua Telethon + Bot API, tách khỏi suite mặc định.
+Setup optional group bằng `python scripts/setup_telegram_e2e.py`, rồi chạy
+`python -m tests.e2e preflight`; login/commands/payment/refund và giới hạn an toàn nằm ở
+[BOTFATHER-SETUP §9](docs/BOTFATHER-SETUP.md#9-nghiệm-thu-bằng-telethon--bot-api).
+Giữ các `.env`/session local và dùng `uv run --no-sync` khi đã cài nhóm E2E.
 
 Nguồn toolchain: [Python 3.12.15](https://www.python.org/downloads/release/python-31215/),
 [uv trên PyPI](https://pypi.org/project/uv/0.13.4/),

@@ -2,6 +2,12 @@
 
 Status: T09–T13 đã triển khai local typed worker đủ năm loại, recovery/retry/uncertain, pinned encrypted sources, manual completion, scoped history/resend và native refund holds/reconciliation. Chưa toàn FD hoặc Telegram live acceptance. Nguồn: `task.md` §§4,5,11. Depends on: committed work contract của [orders-payments](orders-payments.md). [ADR-0002](../../adr/0002-payment-and-fulfillment-safety.md) quyết định delivery guarantee.
 
+T14 nối worker với public dispatcher checkout và operational outbox; all-five-type core
+acceptance dùng PostgreSQL thật/SDK mock, gồm reusable text/document, manual completion và
+refund giữ entitlement. Alerts metadata-only reuse worker lifecycle, unknown send không
+retry; contract ở [admin-support-operations](admin-support-operations.md#t14-core-navigation-và-alerts).
+Telegram test E vẫn pending; không gọi local/mock checks là đã giao hàng qua Telegram thật.
+
 ## Entitlement và dispatch
 
 Một order item sở hữu một entitlement/work. Finite inventory đã allocated chỉ thuộc order item đó; không reserve/allocate key mới khi retry send hoặc phục hồi. Resource/type snapshot quyết định validator/dispatch; wrong-type payload fail closed.

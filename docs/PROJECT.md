@@ -2,7 +2,10 @@
 
 ## Trạng thái hiện tại
 
-Mục tiêu từ [`task.md`](../task.md): shop Telegram bán tài nguyên số được phép phân phối, thanh toán Stars, quản lý kho/đơn và giao hàng an toàn; tiếng Việt mặc định, admin qua Telegram.
+Mục tiêu gốc từ [`task.md`](../task.md): shop Telegram bán tài nguyên số được phép phân phối,
+quản lý kho/đơn và giao hàng an toàn; tiếng Việt mặc định, admin qua Telegram. Owner ngày24/10
+chọn Payment V2: Bank/VietQR + USDT nạp ví, Credit mua hàng; Stars PAUSED/BLOCKED.
+Quyết định và ranh giới sandbox ở [ADR-0006](adr/0006-payment-v2-wallet.md).
 
 | Hạng mục | Trạng thái |
 | --- | --- |
@@ -21,11 +24,18 @@ Mục tiêu từ [`task.md`](../task.md): shop Telegram bán tài nguyên số �
 | T11: history, dashboard và safe resend | Đã triển khai và kiểm chứng local: head `0011_history`, own-customer/scoped-staff history, 30-day real dashboard, shared entitlement reader và durable actor-bound resend; giữ nguyên primary work/allocation, hold/uncertain fences. |
 | T12: support và payment support | Đã triển khai và kiểm chứng local: head `0012_support`, encrypted own-customer/assigned-staff ticket inbox, linked-order context, confirmed assignment/closure, `/paysupport` và optional public terms snapshot. Phản hồi lưu thread; Telegram mock. |
 | T13: refund và privileged reconciliation | Đã triển khai và kiểm chứng local: head `0013_refunds`, verified full-charge confirmation, encrypted decision, owned holds, primary/extra separation, durable refund receipts và positive-evidence reconciliation. Native PostgreSQL races/faults; Telegram mock. |
-| Public Buy, production webhook, CI, production image/deployment | Chưa triển khai; các phần tương ứng trong cây kiến trúc là cấu trúc đích. |
-| BotFather/test bot, live credentials, backup/restore | Chưa cấu hình hoặc kiểm chứng; local PostgreSQL dùng credentials giả tách biệt. |
-| Git | Branch `dev`, HEAD `6c9b25f` (T12) được cập nhật bên ngoài agent trong T13; index hiện trống. T13 working tree; `temp.md` là user file untracked giữ nguyên bytes. Agent không stage/commit/push/unstage/discard work. |
+| T14: core integration | PASS chức năng thay Stars bằng Payment V2 theo yêu cầu nghiệm thu mới của Owner24/10; actual Telegram Test5types/6shapes,6Credit refunds, safe key resend, support. Hậu kiểm sửa3findings về paused pre-checkout, wallet revoke race và callback ACK; fresh C614/D513/H6 pass. [Matrix và bằng chứng](plans/shop/t14-replacement-acceptance.md). Stars E3/E4 lịch sử vẫn unchecked/PAUSED; không claim provider hoặc production PASS. |
+| Payment V2 | PV2-00–08 local/simulated và Telegram Test delivery đã kiểm chứng: ledger double-entry, Bank/USDT top-up, Credit checkout/shared fulfillment, refund/reversal. Đã sửa lỗi ghép quote USDT đã đóng vào giao dịch nạp mới, thêm2regression PostgreSQL. Hosted SePay/actual USDT còn riêng; [plan](plans/shop/payment-v2.md), [runbook/setup](PAYMENT-V2.md). |
+| CI, production image/deployment, backup/restore | Chưa triển khai hoặc kiểm chứng; release gate T18 còn riêng. |
+| BotFather/test bot | Owner có bot server chính, `getMe` đạt. Smoke giới hạn ngày 22/10: Owner xác minh bằng private challenge, polling local chạy, `/start` thật cập nhật profile; command menu 8 lệnh đọc lại khớp, menu quản trị được Telegram chấp nhận gửi. Quyền Owner/default-deny và checkout tắt được kiểm tra qua service. Owner xác nhận thấy tin chào/menu và thao tác được trên thiết bị. Stars test/gate E vẫn pending; xem mục 6 [BOTFATHER-SETUP](BOTFATHER-SETUP.md). |
+| Stars Test Server setup (lịch sử) | Polling/worker/refund dùng đúng aiogram3.31 Test API, credentials/keyring/DB tách main. Buyer2/Test Stars và actual Stars delivery/refund còn BLOCKED/PAUSED; không dùng Credit để tick các case Stars. Current Test bot + Owner session đã được dùng để nghiệm thu Credit thật, không cần login/OTP mới. Lịch sử tại [BOTFATHER-SETUP](BOTFATHER-SETUP.md); current acceptance tại matrix T14.r. |
+| Git | Branch `dev`, HEAD `198b6ed` (T13). T14 và `temp.md` đã staged bên ngoài agent trước phiên nghiệm thu; setup notes là working-tree changes. Agent không stage/commit/push/unstage/discard work. |
 
-Trạng thái và bằng chứng của từng slice nằm trong [implementation plan](plans/shop/implementation-plan.md). T01–T13 hoàn tất local; **T14** là task tiếp theo, còn pending và cần được giao riêng. Không tự chạy toàn roadmap khi chỉ được giao một task.
+Trạng thái và bằng chứng từng slice cũ nằm trong [implementation plan](plans/shop/implementation-plan.md).
+T01–T13 hoàn tất local; **T14 đã PASS nghiệm thu chức năng thay Stars** theo
+[quyết định/matrix mới](plans/shop/t14-replacement-acceptance.md). External Stars E3/E4
+giữ PAUSED/unchecked; hosted SePay/actual USDT/go-live ở [Payment V2](plans/shop/payment-v2.md)
+vẫn chưa đạt. Dừng trước T15–T18 hoặc các external gates chưa được giao/cấu hình.
 
 ## Đọc theo nhiệm vụ
 
@@ -33,6 +43,7 @@ Trạng thái và bằng chứng của từng slice nằm trong [implementation 
 | --- | --- |
 | Code hoặc sửa behavior | [CONVENTIONS](CONVENTIONS.md), section liên quan trong [ARCHITECTURE](ARCHITECTURE.md), đúng capability spec từ [bản đồ](plans/shop/README.md). |
 | Thanh toán/kho/giao hàng/refund | Spec `orders-payments`, `catalog-inventory`, `fulfillment` liên quan; ADR-0002 và ADR-0003. |
+| Payment V2 Bank/USDT/Credit | [ADR-0006](adr/0006-payment-v2-wallet.md), [spec/plan](plans/shop/payment-v2.md), [runbook](PAYMENT-V2.md). Stars documents bên trên là history/regression, không bắt Credit checkout gọi Stars. |
 | Auth/admin/support | Spec `identity-access` hoặc `admin-support-operations`; không cần đọc growth. |
 | Thay đổi nền tảng/ranh giới | ADR liên quan trong [index](adr/README.md), rồi cập nhật hoặc supersede quyết định một cách tường minh. |
 | Docs/harness | Đúng tài liệu đang sửa và check dưới đây; không cần tải các skill code/security nếu không liên quan. |
@@ -67,6 +78,7 @@ uv run --no-sync telebotshop
 uv run --no-sync telebotshop polling
 uv run --no-sync telebotshop expire-orders
 uv run --no-sync telebotshop worker
+uv run --no-sync telebotshop webhook
 ```
 
 PostgreSQL gate D, sau khi start disposable test service và export `APP_ENV=test`/`TEST_DATABASE_URL` theo README:
@@ -82,9 +94,11 @@ python scripts/verify_harness.py
 python -B -m unittest discover -s tests -p test_harness.py -v
 ```
 
-HTTP không cần bot secrets. Polling cần BOT_TOKEN/OWNER_ID và inventory key settings trong environment bảo vệ, chỉ
-development/test, từ chối existing webhook; hướng dẫn trong README. Không chạy command
-polling thật từ các task code/test T03–T13. Worker/resend/refund tạo external effects nên chỉ operator chạy khi có authorization thực tế; tests mock. `expire-orders` chạy một batch DB-only,
+HTTP không cần bot secrets. Polling/webhook cần BOT_TOKEN/OWNER_ID và inventory keys, chỉ
+development/test. TELEGRAM_ENVIRONMENT chọn main/test độc lập với APP_ENV;
+webhook thêm WEBHOOK_SECRET. Hướng dẫn trong [BOTFATHER-SETUP](BOTFATHER-SETUP.md).
+Worker/resend/refund tạo external effects nên chỉ operator chạy khi có authorization thực tế;
+tests mock. `expire-orders` chạy một batch DB-only,
 không Bot/keys; hướng dẫn và giới hạn tại README/DATABASE.
 
 T09 verification: **402 unit/contract/architecture**, **238 PostgreSQL integration**,

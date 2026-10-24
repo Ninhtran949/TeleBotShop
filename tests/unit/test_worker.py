@@ -13,7 +13,9 @@ from tests.telegram import FAKE_TOKEN
 async def test_worker_recovers_before_claim_and_idle_wait_is_cancellable():
     service = AsyncMock()
     service.run_once.return_value = False
-    task = asyncio.create_task(run_forever(service, poll_seconds=30))
+    notifications = AsyncMock()
+    notifications.run_once.return_value = False
+    task = asyncio.create_task(run_forever(service, notifications, poll_seconds=30))
     try:
         async with asyncio.timeout(1):
             while not service.run_once.await_count:
@@ -22,6 +24,24 @@ async def test_worker_recovers_before_claim_and_idle_wait_is_cancellable():
         task.cancel()
         with pytest.raises(asyncio.CancelledError):
             await task
+    finally:
+        task.cancel()
+        await asyncio.gather(task, return_exceptions=True)
+
+
+@pytest.mark.asyncio
+async def test_notification_failure_is_redacted_and_does_not_stop_paid_work(caplog):
+    service, notifications = AsyncMock(), AsyncMock()
+    service.run_once.side_effect = [True, False]
+    notifications.discover.side_effect = OSError("FAKE_SECRET_NOTIFICATIONS")
+    notifications.run_once.side_effect = OSError("FAKE_SECRET_NOTIFICATIONS")
+    task = asyncio.create_task(run_forever(service, notifications, poll_seconds=30))
+    try:
+        async with asyncio.timeout(1):
+            while service.run_once.await_count < 2:
+                await asyncio.sleep(0)
+        assert "notification_worker_failed" in caplog.text
+        assert "FAKE_SECRET_NOTIFICATIONS" not in caplog.text
     finally:
         task.cancel()
         await asyncio.gather(task, return_exceptions=True)

@@ -7,6 +7,7 @@ from telebotshop.domain.errors import CatalogNotFound, InvalidAction, InvalidInp
 from telebotshop.domain.models.access import Permission
 from telebotshop.domain.models.admin import ActionStatus
 from telebotshop.domain.models.catalog import (
+    Availability,
     Category,
     CategoryDraft,
     Page,
@@ -26,6 +27,7 @@ from telebotshop.domain.models.catalog_action import (
     SaleChange,
 )
 from telebotshop.domain.models.identity import validate_telegram_id
+from telebotshop.domain.models.inventory import FINITE_TYPES
 
 
 class CatalogService:
@@ -80,6 +82,22 @@ class CatalogService:
         async with self.uow() as work:
             await require_permission(work, actor_id, Permission.MANAGE_CATALOG)
             return await work.catalog.products(None, None, page, public_only=False)
+
+    async def availability(self, actor_id: int, product_id: UUID) -> Availability:
+        validate_telegram_id(actor_id)
+        if not isinstance(product_id, UUID):
+            raise InvalidInput("Invalid product reference")
+        async with self.uow() as work:
+            product = await work.catalog.product(product_id)
+            if product is None or product.sale_state != SaleState.ACTIVE:
+                raise CatalogNotFound("Product unavailable")
+            if product.draft.product_type in FINITE_TYPES:
+                count = await work.inventory.available_count(product_id)
+                return Availability(count, count > 0)
+            source = await work.resources.current(product_id)
+            return Availability(
+                None, source is not None and source.metadata == product.draft.metadata
+            )
 
     async def admin_product(self, actor_id: int, sku: str) -> Product:
         validate_code(sku)

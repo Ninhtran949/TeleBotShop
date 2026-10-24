@@ -7,7 +7,14 @@ from sqlalchemy.ext.asyncio import create_async_engine
 from sqlalchemy.pool import NullPool
 
 from telebotshop.infrastructure.config import Settings
-from telebotshop.infrastructure.database.models.refunds import metadata
+from telebotshop.infrastructure.database.models.credit_orders import metadata as wallet_metadata
+from telebotshop.infrastructure.database.models.notifications import metadata
+from telebotshop.infrastructure.database.models.topups import metadata as topup_metadata
+from telebotshop.infrastructure.database.models.wallet_refunds import metadata as refund_metadata
+
+assert wallet_metadata is metadata
+assert topup_metadata is metadata
+assert refund_metadata is metadata
 
 
 def run_migrations(connection: Connection) -> None:

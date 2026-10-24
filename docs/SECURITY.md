@@ -1,10 +1,34 @@
-# Security controls — T03–T13
+# Security controls — T03–T14
+
+## Payment V2 sandbox
+
+Theo ADR-0006, Bank/VietQR và USDT nạp Credit; Credit mua hàng độc lập Stars. Customer UI
+ẩn Stars khi disabled, CheckoutService chặn nút cũ trước DB/invoice; receipt/refund intake cũ
+vẫn được giữ. Không dùng Stars invoice, pre-checkout hoặc fake successful_payment cho Credit.
+
+- Ledger double-entry, integer credits, nonnegative customer balance, immutable source binding;
+  sorted account locks, buyer/product/unit locks và unique operation keys ngăn replay/overspend.
+- SePay raw HMAC `timestamp.body`, ±300s,64KiB, duplicate-header/JSON checks, constant-time compare;
+  bounded read/dispatch và durable commit trước200. Bank/account/reference/amount/direction/TTL exact.
+- USDT cần exclusive buyer route, Decimal snapshot/TTL, đúng asset/network/token/recipient/finality.
+  Exchange history đơn lẻ không chứng minh token contract: actual evidence vẫn pending; fixtures
+  chỉ SIMULATED trong sandbox. Không amount-only matching, private key, trade hay withdraw.
+- Financial privileges là wallet-specific explicit grants, Owner hoặc authorized ADMIN; CLI có
+  local secret authentication trước effect, typed confirmation, actor/reason/evidence/audit.
+  Revoke được recheck trong transaction. Screenshot và user TXID không tự cộng Credit.
+- Credit refund serialize order/work/resend; sending/uncertain bị chặn, key vẫn allocated.
+  Reversal không tự hoàn tiền ngoài hệ thống. Manual cash-refund records không đổi balance,
+  không gửi tiền và không tự retry UNCERTAIN.
+- `.env.payment-v2`, keyring/operator/HMAC secrets và runtime DB riêng; actual app flags vẫn
+  test-only, external-live=false. Old private configs không bị sửa. [Runbook](PAYMENT-V2.md)
+  phân biệt local simulated evidence với hosted-provider/real-money gates.
 
 Phạm vi hiện có: identity, permission, audit, public catalog/admin, encrypted key/license
 inventory/resource sources, orders/approval/receipt/paid entitlement, typed delivery worker,
-manual completion, history/resend, support tickets, full refund/reconciliation và development polling. Đây là controls đã
+manual completion, history/resend, support tickets, full refund/reconciliation, public
+checkout, authenticated webhook và durable metadata notifications. Đây là controls đã
 triển khai/automated-test, chưa là production hoặc toàn bộ shop security acceptance.
-Refund có T13 local evidence; webhook, Telegram external acceptance và release có gate riêng trong
+Webhook có local/mock evidence; Telegram external acceptance và release có gate riêng trong
 [implementation plan](plans/shop/implementation-plan.md).
 
 | Boundary | Control hiện tại | Evidence |
@@ -210,10 +234,39 @@ Optional defense-in-depth: SQL proof guard cho non-API success từ SENDING/UNCE
 siết thêm; production application đã exact-match receipt trước transition. Không coi local
 DDL-role tests là production role separation; app/migration roles thuộc T18.
 
+## T14 checkout, transport và operational notifications
+
+Public checkout không tin price/buyer trong callback. Durable action gắn buyer/product,
+price snapshot từ DB; current ownership/source/reservation recheck ở use cases, không
+chỉ handler. Không có public terms thì từ chối nhận đơn; digest SHA-256 consent được audit
+trước invoice. Prefix 96 bit chỉ phát hiện terms cũ, không thay authorization. Nonfinite
+invoice yêu cầu đúng pinned resource; không dùng finite reservation guard cho mọi type.
+Customer lookup chỉ current orders.read, buyer UUID filter và bounded 30-day page; user
+thường không dùng filter để xem khách khác. Tests có direct use-case và revoked grant.
+
+Bot endpoint là SDK constant main/test, cấu hình riêng và không nhận URL tùy ý. Webhook
+chỉ development/test hiện tại, auth bằng đúng một secret header, constant-time comparison
+trước stream read. Project yêu cầu secret 32–256 allowed ASCII, không log/echo. Body JSON
+unique fields ≤256 KiB cả chunked, compression bị từ chối; stream timeout 2s, dispatch 20s,
+32 slots. Slot được nhả cả timeout/failure; quá tải trả 503. Invalid input fixed 400,
+secret sai 403. Receipt/refund lỗi commit trả 503, authenticated retry dedup trước business
+effects. Financial intake bypass ordinary actor/rate guard để không làm mất receipt.
+SDK parsing ở infrastructure; health-only app không load bot secrets. No auto registration.
+
+Operational outbox chỉ giữ metadata; không copy ticket body, key, charge hoặc evidence.
+Discovery dedup và SKIP LOCKED, current persisted Owner hoặc exact ticket customer/source
+recheck trước SENDING commit. Access lock giữ grant tới commit; network ngoài transaction,
+completion chỉ đúng immutable request identity/deadline/destination. Unknown outcome,
+crash/lost ACK/expired window giữ UNCERTAIN; không automatic retry hoặc reset, kể cả nếu
+late observation là SENT. Native two-connection/commit failure/late completion và SQL
+NULL-safe immutable guards kiểm chứng các nhánh này. Rate-limit refusal của alert là
+FAILED một lần, tránh nhầm chính sách retry của delivery. Worker alert failure không chặn
+paid work. Alert không phải monitoring delivery guarantee; failed/uncertain cần operator xem.
+
 Giới hạn cần hoàn thiện ở task tương ứng:
 
-- Webhook HTTPS/secret/body cap, shared counters trước multi-ingress, operational
-  monitoring và live Telegram/Stars evidence chưa có; T03 không nhận production webhook.
+- Webhook HTTPS/TLS/operator registration chưa chạy; shared counters trước multi-ingress,
+  operational monitoring và Telegram/Stars evidence còn pending. Production activation T18.
 - Lock singleton ưu tiên correctness cho access/settings ít ghi; đo contention trước khi
   thu hẹp locks; inventory key registration cũng đang serialize writes. PostgreSQL role dùng local tests có quyền DDL; superuser/table owner có
   thể disable trigger. Production app/migration roles và backup/restore thuộc T18.

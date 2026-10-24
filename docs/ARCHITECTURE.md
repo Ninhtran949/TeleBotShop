@@ -2,7 +2,22 @@
 
 ## Trạng thái và lựa chọn
 
-Đây là baseline thiết kế được SE/SA chọn theo ủy quyền của Owner. T01–T13 đã triển khai toolchain/runtime, HTTP health, PostgreSQL/UoW/migrations, identity/permission/audit, public catalog/admin, encrypted inventory, orders/invoice intents và serialized pre-checkout approval, durable receipt, paid allocation/resource entitlement và READY intent. Development polling dùng checker thật và ghi payment/refund receipts trước offset; worker dispatch đủ năm loại, manual có staff completion; history/resend, encrypted scoped support tickets và confirmed full refund/reconciliation đã có, public Buy/production webhook chưa có. Yêu cầu nghiệp vụ gốc ở [`task.md`](../task.md); lý do chọn kiến trúc ở [ADR-0001](adr/0001-modular-monolith.md). Thiết kế chỉ dựng package/file khi một slice cần dùng, không tạo toàn bộ cây trống.
+Payment V2 theo [ADR-0006](adr/0006-payment-v2-wallet.md): Bank/USDT là top-up rails;
+Wallet Credit là order payment chính trong sandbox. Stars PAUSED/BLOCKED, giữ module cũ.
+`WalletCheckoutService` ghi debit/order/payment/allocation/work trong cùng UoW, không gọi
+OrderService→PaymentService hay tạo receipt XTR. T09/T10 worker, mã hóa/manual/resend dùng chung.
+`payments` là union có shape constraints riêng Stars/CRD, mỗi order có immutable method.
+Các guards Stars gốc giữ nguyên function text; triggers có WHEN Stars, còn wallet có guards
+deferred riêng để kiểm tra exact debit và compensating refund. Chi tiết schema/locks/rollback
+ở [spec](plans/shop/payment-v2.md) và [DATABASE](DATABASE.md#payment-v2).
+
+`application/services/{wallet,wallet_checkout,topups,topup_review,wallet_refunds,payment_reconciliation}.py`
+sở hữu transaction/quyết định; SQL repos thực hiện query và không commit.
+`infrastructure/payments/` chứa SePay HMAC/QR/read API và Binance read-only/simulated adapter;
+`api/bank_webhook.py` chỉ xử lý transport. `admin/payment_operator.py` có authentication local
+độc lập Telegram, vẫn gọi use cases/current grants. Chỉ `bootstrap.py` wire concrete services.
+
+Đây là baseline thiết kế được SE/SA chọn theo ủy quyền của Owner. T01–T13 đã triển khai toolchain/runtime, HTTP health, PostgreSQL/UoW/migrations, identity/permission/audit, catalog/admin/inventory, orders/payment/refund, typed worker/manual, history/resend và encrypted tickets. T14 nối public Buy/terms/invoice, customer lookup, explicit test transport, authenticated bounded webhook và durable operational notifications; Telegram test E và production deployment chưa được nghiệm thu. Yêu cầu gốc ở [`task.md`](../task.md); lý do chọn kiến trúc ở [ADR-0001](adr/0001-modular-monolith.md). Chỉ dựng package/file khi một slice cần dùng, không tạo toàn bộ cây trống.
 
 Chọn **modular monolith**, một codebase/image, PostgreSQL là nguồn dữ liệu bền vững. Production dự kiến có hai process từ cùng image: HTTP ingress và fulfillment worker. Local polling chỉ là adapter development thay thế webhook, không chạy cùng webhook cho cùng bot.
 
@@ -77,7 +92,7 @@ commit claim trước gọi sender, đóng UoW rồi mới network, sau đó per
 UoW khác. Không có DB session sống qua API call. `StarsInvoiceSender` nằm cạnh Telegram
 adapters hiện có; chỉ composition root/tests được wire concrete implementations.
 `expire-orders` là entrypoint một batch DB-only, chưa có process scheduler. Public polling
-chưa bật Buy/invoice; core navigation/checkout UI tích hợp ở T14.
+được nối Buy/invoice qua CheckoutService ở T14 sau khi intake tài chính đã an toàn.
 
 T07 thêm PreCheckoutService và callable port (`PreCheckout` → bool), nối qua orders port
 hiện có; không tạo repository riêng cho một approval row. `infrastructure/telegram/pre_checkout.py`
@@ -168,7 +183,8 @@ Không có Telegram call trong UoW hoặc thay đổi payment/work/allocation t�
 Bootstrap load optional public terms file một lần trước Bot/DB, inject PublicTerms snapshot
 vào SupportService; thiếu cấu hình trả chưa sẵn sàng, file lỗi/placeholder fail startup an toàn.
 Router support chỉ validate/render private commands/callbacks; phản hồi lưu inbox, không
-push notification. Checkout consent/live routing còn T14; refund/reconciliation T13 là use case riêng.
+push notification trong T12; T14 thêm metadata-only reply notification. Refund/reconciliation
+T13 là use case riêng; ticket operations không tự sửa payment.
 
 T13 RefundService sở hữu current payments.refund, verified charge, encrypted decision và
 actor/payment/state-snapshot/expiry-bound intent. Access→charge→order→work→resend→intent
@@ -187,7 +203,27 @@ SENDING/UNCERTAIN không tự mở lại. Positive refund evidence đóng ledger
 explicit uncertainty decision chỉ cho phép refund sau hết delivery/resend lease, giữ nguyên
 attempts/observations và uncertainty, không tuyên bố thu hồi tài nguyên. Authenticated refund
 event có thể đến khi delivery đang gửi: giữ hold/order REFUNDED và chỉ lưu late observation.
-All checkout/live/notification routing vẫn T14; không suy external acceptance từ local tests.
+Không suy external acceptance từ local tests; Telegram test gate E vẫn pending.
+
+T14 CheckoutService gọi OrderService/InvoiceService hiện có, giữ source/price/owner checks
+ở application. Buy nonce chỉ là idempotency key; không nhận giá/buyer từ callback. Full
+terms SHA-256 lưu audit idempotent trước invoice claim; callback mang digest prefix 96 bit
+để từ chối consent cũ, không phải chữ ký hoặc authorization. Public terms snapshot load lúc
+startup dùng chung support/checkout. Catalog availability chỉ đọc counts/metadata, không decrypt.
+HistoryService reuse buyer UUID filter với current orders.read cho bounded customer lookup.
+
+Composition root create_bot chọn fixed SDK PRODUCTION/TEST endpoint từ cấu hình riêng,
+không infer từ APP_ENV hoặc nhận arbitrary host. Polling và webhook dùng chung runtime_dispatcher.
+HTTP webhook adapter auth/stream cap/timeout/concurrency trước SDK parsing; infrastructure
+validate Update rồi gọi dispatcher. Financial handlers awaited commit trước HTTP 200; lỗi
+trả 503. Health-only app vẫn không cần Bot/keys. Không automatic set/delete webhook.
+
+NotificationService dùng durable notifications repository/outbox trong PostgreSQL, reuse
+worker lifecycle. Discovery bounded, current Owner/customer và source recheck trước SENDING
+commit; NotificationSender gọi Telegram ngoài UoW, completion/late observation dùng UoW khác.
+Metadata-only envelope, no payload/decrypt. Unique kind/target/recipient/revision + SKIP LOCKED
+chặn duplicate discovery/two workers; uncertainty terminal, không automatic resend. Operational
+alerts gửi persisted Owner, support latest reply gửi đúng customer; staff theo dõi assigned inbox.
 
 ## Ma trận import bắt buộc
 

@@ -86,7 +86,12 @@ def ticket_detail(detail: TicketDetail, staff: bool):
         f"Cập nhật: {ticket.updated_at:%d/%m/%Y %H:%M} UTC\n"
     )
     if detail.order:
-        text += f"Đơn: {detail.order.id}\n{detail.order.title} · {detail.order.price_stars} Stars\n"
+        price = (
+            str(detail.order.price_credits) + " credit"
+            if detail.order.price_credits is not None
+            else str(detail.order.price_stars) + " Stars"
+        )
+        text += f"Đơn: {detail.order.id}\n{detail.order.title} · {price}\n"
         text += "Trạng thái đơn: " + STATUS_LABELS.get(detail.order.status, "Chưa xác định") + "\n"
         if detail.order.resend_state:
             text += "Gửi lại: " + RESEND_LABELS[detail.order.resend_state] + "\n"

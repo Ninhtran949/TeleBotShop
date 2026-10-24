@@ -17,6 +17,7 @@ from telebotshop.bootstrap import create_dispatcher
 from telebotshop.domain.models.catalog import SaleState
 from telebotshop.infrastructure.database.uow import unit_of_work
 from telebotshop.infrastructure.telegram import guard as guard_module
+from tests.checkout import checkout_service
 from tests.inventory import inventory_service
 from tests.manual import manual_service
 from tests.refunds import refund_service
@@ -58,6 +59,7 @@ async def test_admin_customer_photo_price_and_hidden_callbacks_use_real_db_outsi
         manual=manual_service(migrated_database),
         support=support_service(migrated_database),
         refunds=refund_service(migrated_database),
+        checkout=checkout_service(migrated_database),
         history=HistoryService(factory),
         resends=resend_service(migrated_database, RecordingSender(migrated_database)),
     )

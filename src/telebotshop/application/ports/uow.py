@@ -4,16 +4,20 @@ from typing import Protocol
 
 from telebotshop.application.ports.access import AccessRepository
 from telebotshop.application.ports.catalog import CatalogRepository
+from telebotshop.application.ports.credit_orders import CreditOrderRepository
 from telebotshop.application.ports.fulfillment import FulfillmentRepository
 from telebotshop.application.ports.history import HistoryRepository
 from telebotshop.application.ports.identity import IdentityRepository
 from telebotshop.application.ports.inventory import InventoryRepository
 from telebotshop.application.ports.manual import ManualRepository
+from telebotshop.application.ports.notifications import NotificationRepository
 from telebotshop.application.ports.orders import OrderRepository
 from telebotshop.application.ports.payments import PaymentRepository
 from telebotshop.application.ports.refunds import RefundRepository
 from telebotshop.application.ports.resources import ResourceRepository
 from telebotshop.application.ports.support import SupportRepository
+from telebotshop.application.ports.topups import TopUpRepository
+from telebotshop.application.ports.wallet import WalletRepository
 
 
 class UnitOfWork(Protocol):
@@ -29,6 +33,10 @@ class UnitOfWork(Protocol):
     history: HistoryRepository
     support: SupportRepository
     refunds: RefundRepository
+    notifications: NotificationRepository
+    wallet: WalletRepository
+    credit_orders: CreditOrderRepository
+    topups: TopUpRepository
 
     async def commit(self) -> None: ...
 
